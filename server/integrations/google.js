@@ -8,3 +8,16 @@ export function googleAuthorizeUrl({ clientId, redirectUri, state }) {
   });
   return GOOGLE_AUTH_URL + "?" + params.toString();
 }
+
+export async function exchangeGoogleCode({ clientId, clientSecret, redirectUri, code }) {
+  const response = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      client_id: clientId, client_secret: clientSecret, redirect_uri: redirectUri,
+      grant_type: "authorization_code", code
+    })
+  });
+  if (!response.ok) throw new Error("Google OAuth exchange failed: " + response.status);
+  return response.json();
+}
