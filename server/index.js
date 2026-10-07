@@ -25,7 +25,7 @@ const server = await import("node:http").then(({ createServer }) =>
     if (req.method === "GET" && req.url === "/auth/meta") {
       const state = createOAuthState(); oauthStates.add(state);
       res.statusCode = 302;
-      res.setHeader("Location", metaAuthorizeUrl({ clientId: process.env.META_CLIENT_ID, redirectUri: process.env.META_REDIRECT_URI, state }));
+      res.setHeader("Location", metaAuthorizeUrl({ clientId: process.env.META_CLIENT_ID, redirectUri: process.env.META_REDIRECT_URI, state, configId: process.env.META_CONFIG_ID }));
       res.end(); return;
     }
 
