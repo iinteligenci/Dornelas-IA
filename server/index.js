@@ -22,6 +22,10 @@ const demoContext = {
 const server = await import("node:http").then(({ createServer }) =>
   createServer(async (req, res) => {
     res.setHeader("Content-Type", "application/json; charset=utf-8");
+    res.setHeader("Access-Control-Allow-Origin", "https://iinteligenci.github.io");
+    res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+    if (req.method === "OPTIONS") { res.statusCode = 204; res.end(); return; }
 
     if (req.method === "GET" && req.url === "/auth/meta") {
       const state = createOAuthState(); oauthStates.add(state);
@@ -72,15 +76,9 @@ const server = await import("node:http").then(({ createServer }) =>
           console.error("Meta accounts lookup failed:", accountError.message);
         }
 
-        res.end(JSON.stringify({
-          ok: true,
-          provider: "meta",
-          connected: true,
-          token_received: true,
-          long_lived_token_received: Boolean(longLived?.access_token),
-          expires_in: longLived?.expires_in || null,
-          accounts
-        }));
+        res.statusCode = 302;
+        res.setHeader("Location", "https://iinteligenci.github.io/Dornelas-IA/?meta=connected");
+        res.end();
       } catch (error) {
         res.statusCode = 502; res.end(JSON.stringify({ error: "oauth_exchange_failed" }));
       }
