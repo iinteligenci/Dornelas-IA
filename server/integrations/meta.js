@@ -1,8 +1,13 @@
 const META_AUTH_URL = "https://www.facebook.com/v24.0/dialog/oauth";
 
-export function metaAuthorizeUrl({ clientId, redirectUri, state }) {
-  const scopes = ["public_profile","pages_show_list","pages_read_engagement","instagram_basic","instagram_content_publish"];
-  const params = new URLSearchParams({ client_id: clientId, redirect_uri: redirectUri, state, response_type: "code", scope: scopes.join(",") });
+export function metaAuthorizeUrl({ clientId, redirectUri, state, configId }) {
+  const params = new URLSearchParams({
+    client_id: clientId,
+    redirect_uri: redirectUri,
+    state,
+    response_type: "code",
+    config_id: configId
+  });
   return META_AUTH_URL + "?" + params.toString();
 }
 
