@@ -1,0 +1,21 @@
+import React,{useState} from 'react';
+import {createRoot} from 'react-dom/client';
+import './styles.css';
+
+const initialActions=[
+ {time:'09:00',type:'Análise',title:'Analisou o estado comercial',detail:'Bacon e Kit Feijoada definidos como prioridades.',status:'Concluído'},
+ {time:'09:12',type:'Oportunidade',title:'Identificou oportunidade de campanha',detail:'Criar campanha orgânica para bacon com foco em pedido no site.',status:'Pronto'},
+];
+
+function App(){
+ const [autonomy,setAutonomy]=useState(2); const [running,setRunning]=useState(false); const [actions,setActions]=useState(initialActions);
+ const run=()=>{setRunning(true);setTimeout(()=>{setActions(a=>[{time:new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}),type:'Ação',title:'Agente executou ciclo comercial',detail:'Analisou catálogo e priorizou Bacon para aquisição de demanda.',status:'Executado'},...a]);setRunning(false)},700)};
+ return <div className="app"><aside><div className="brand"><div className="logo">D</div><div><strong>Dornelas IA</strong><small>Agente comercial</small></div></div><nav><button className="active">Visão geral</button><button>Campanhas</button><button>Conteúdo</button><button>Integrações</button><button>Permissões</button><button>Resultados</button><button>Auditoria</button></nav><div className="sidefoot"><span className="dot"/> Sistema operacional</div></aside><main><header><div><span className="eyebrow">AUTONOMIA COMERCIAL</span><h1>O objetivo é vender mais.</h1><p>A IA monitora o negócio, encontra oportunidades e executa ações autorizadas.</p></div><button className="primary" onClick={run}>{running?'Executando…':'Executar ciclo agora'}</button></header>
+<section className="hero"><div><span className="pill green">● Autonomia nível {autonomy}</span><h2>Agente trabalhando para aumentar as vendas</h2><p>Próxima ação: identificar a melhor oportunidade de aquisição e conversão.</p></div><div className="autonomy"><label>Nível de autonomia</label><select value={autonomy} onChange={e=>setAutonomy(+e.target.value)}><option value="0">0 — Observar</option><option value="1">1 — Preparar</option><option value="2">2 — Executar ações autorizadas</option><option value="3">3 — Autonomia de vendas</option></select></div></section>
+<div className="grid"><Metric title="Vendas hoje" value="R$ 0,00" note="Aguardando dados reais"/><Metric title="Pedidos" value="0" note="Conexão com site pendente"/><Metric title="Campanhas ativas" value="0" note="Nenhuma publicada ainda"/><Metric title="Oportunidades" value="2" note="Detectadas pelo agente"/></div>
+<section className="columns"><div className="card"><div className="cardhead"><div><span className="eyebrow">CENTRAL DE AÇÕES</span><h3>O que a IA está fazendo</h3></div><span className="live">● LIVE</span></div>{actions.map((a,i)=><div className="action" key={i}><div className="time">{a.time}</div><div className="actionbody"><div className="actiontitle">{a.title}<span>{a.status}</span></div><p>{a.detail}</p></div></div>)}</div><div className="card"><div className="cardhead"><div><span className="eyebrow">CONEXÕES</span><h3>Contas e fontes</h3></div></div><Connection name="Site Dornelas" status="Aguardando conexão"/><Connection name="Instagram / Meta" status="OAuth necessário"/><Connection name="Google Business Profile" status="OAuth necessário"/><Connection name="Pedidos / vendas" status="Aguardando conexão"/><div className="notice">🔒 As credenciais ficam fora do código. Cada integração terá permissões próprias e revogáveis.</div></div></section>
+<section className="card objective"><span className="eyebrow">DIRETRIZ PRINCIPAL</span><h3>Aumentar vendas com segurança</h3><div className="rules"><span>✓ Priorizar receita e conversão</span><span>✓ Respeitar estoque e margem</span><span>✓ Não inventar ofertas ou informações</span><span>✓ Registrar toda ação executada</span></div></section>
+</main></div>}
+function Metric({title,value,note}){return <div className="metric"><span>{title}</span><strong>{value}</strong><small>{note}</small></div>};
+function Connection({name,status}){return <div className="connection"><div><b>{name}</b><small>{status}</small></div><button>Conectar</button></div>}
+createRoot(document.getElementById('root')).render(<App/>);
