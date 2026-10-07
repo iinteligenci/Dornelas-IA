@@ -84,6 +84,6 @@ const server = await import("node:http").then(({ createServer }) =>
   })
 );
 
-server.listen(port, () => {
+server.listen(port, "0.0.0.0", () => {
   console.log(`Dornelas IA backend listening on :${port}`);
 });
