@@ -123,14 +123,63 @@ async function persistMetaConnection(){
 }
 
 
+async function discoverInstagramBusinessAsset() {
+  const token=metaConnection?.accessToken;
+  if(!token) return null;
+  // Primeiro usa o caminho oficial mais comum: Páginas administradas pelo usuário.
+  try {
+    const accounts=await metaGraphGet({
+      path:"/me/accounts",
+      accessToken:token,
+      params:{fields:"id,name,instagram_business_account{id,username}"}
+    });
+    const page=(accounts.data||[]).find(p=>p.instagram_business_account?.id);
+    if(page) return {authType:"facebook_login",igId:page.instagram_business_account.id,page,source:"page_link"};
+  } catch(error) { console.error("Meta page discovery failed:",error.message); }
+
+  // Fallback: o mesmo token já autorizado pode ter acesso ao ativo do Instagram
+  // dentro de um Business Manager, mesmo quando /me/accounts não o expõe.
+  try {
+    const businesses=await metaGraphGet({
+      path:"/me/businesses",
+      accessToken:token,
+      params:{fields:"id,name,instagram_accounts{id,username}"}
+    });
+    for(const business of (businesses.data||[])){
+      const direct=(business.instagram_accounts?.data||[]).find(x=>x.id);
+      if(direct) return {authType:"facebook_login",igId:direct.id,page:null,business:{id:business.id,name:business.name},source:"business_asset"};
+    }
+  } catch(error) { console.error("Meta business instagram discovery failed:",error.message); }
+
+  try {
+    const businesses=await metaGraphGet({
+      path:"/me/businesses",
+      accessToken:token,
+      params:{fields:"id,name"}
+    });
+    for(const business of (businesses.data||[])){
+      for(const edge of ["instagram_accounts","owned_instagram_accounts"]){
+        try {
+          const result=await metaGraphGet({path:"/"+business.id+"/"+edge,accessToken:token,params:{fields:"id,username,name"}});
+          const account=(result.data||[]).find(x=>x.id);
+          if(account) return {authType:"facebook_login",igId:account.id,page:null,business:{id:business.id,name:business.name},source:"business_asset"};
+        } catch {}
+      }
+    }
+  } catch(error) { console.error("Meta business list failed:",error.message); }
+  return null;
+}
+
 async function getInstagramTarget(){
   await loadPersistedMetaConnection();
   if(!metaConnection?.accessToken) throw new Error("Instagram / Meta não está conectado.");
-  if(metaConnection.authType==="instagram_login") return {authType:"instagram_login",igId:metaConnection.instagramUserId||null,page:null};
-  const accounts=await metaGraphGet({path:"/me/accounts",accessToken:metaConnection.accessToken,params:{fields:"id,name,instagram_business_account"}});
-  const page=(accounts.data||[]).find(a=>a.instagram_business_account?.id);
-  if(!page) throw new Error("Nenhuma conta Instagram profissional vinculada a uma Página foi encontrada. Use o botão Conectar Instagram.");
-  return {authType:"facebook_login",igId:page.instagram_business_account.id,page};
+  if(metaConnection.authType==="instagram_login") {
+    if(!metaConnection.instagramUserId) throw new Error("Token do Instagram conectado, mas o ID da conta não foi retornado.");
+    return {authType:"instagram_login",igId:metaConnection.instagramUserId,page:null,source:"instagram_login"};
+  }
+  const target=await discoverInstagramBusinessAsset();
+  if(!target) throw new Error("A Meta autorizou o usuário, mas não entregou um Instagram profissional acessível ao aplicativo. O agente tentou Página e ativos do Business Manager usando o mesmo token.");
+  return target;
 }
 
 async function publishInstagramMedia({mediaType,imageUrl,videoUrl,caption}){
@@ -276,12 +325,18 @@ const server = await import("node:http").then(({ createServer }) =>
           try { const data = JSON.parse(parsed); metaConnection = { accessToken: data.accessToken, expiresAt: data.expiresAt || null, connected: true, authType:data.authType||"facebook_login", instagramUserId:data.instagramUserId||null }; } catch {}
         }
       }
-      let targetAvailable=false, targetError=null, target=null, pages=[];
+      let targetAvailable=false, targetError=null, target=null, pages=[], businesses=[];
       if(metaConnection?.accessToken){
         try{
           if(metaConnection.authType==="facebook_login"){
-            const accounts=await metaGraphGet({path:"/me/accounts",accessToken:metaConnection.accessToken,params:{fields:"id,name,instagram_business_account"}});
-            pages=(accounts.data||[]).map(p=>({id:p.id,name:p.name,instagramLinked:Boolean(p.instagram_business_account?.id),instagramId:p.instagram_business_account?.id||null}));
+            try{
+              const accounts=await metaGraphGet({path:"/me/accounts",accessToken:metaConnection.accessToken,params:{fields:"id,name,instagram_business_account{id,username}"}});
+              pages=(accounts.data||[]).map(p=>({id:p.id,name:p.name,instagramLinked:Boolean(p.instagram_business_account?.id),instagramId:p.instagram_business_account?.id||null}));
+            }catch{}
+            try{
+              const result=await metaGraphGet({path:"/me/businesses",accessToken:metaConnection.accessToken,params:{fields:"id,name"}});
+              businesses=result.data||[];
+            }catch{}
           }
           target=await getInstagramTarget();targetAvailable=Boolean(target?.igId);
         }catch(error){targetError=error.message;}
@@ -291,6 +346,7 @@ const server = await import("node:http").then(({ createServer }) =>
         targetAvailable,
         targetError,
         pages,
+        businesses,
         authType: metaConnection?.authType || null,
         instagramUserId: metaConnection?.instagramUserId || null,
         target: target?{authType:target.authType,igId:target.igId,username:target.page?.name||null}:null,
