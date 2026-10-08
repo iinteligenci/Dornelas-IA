@@ -197,6 +197,7 @@ const server = await import("node:http").then(({ createServer }) =>
       let body=""; for await (const chunk of req) body+=chunk;
       try {
         const input=JSON.parse(body||"{}");
+        if(Number(input.autonomyLevel || 0) < 2) throw new Error("Publicação externa exige autonomia nível 2 ou superior.");
         if(!input.imageUrl || !input.caption) throw new Error("imageUrl e caption são obrigatórios.");
         const accounts=await metaGraphGet({path:"/me/accounts",accessToken:metaConnection.accessToken,params:{fields:"id,name,instagram_business_account"}});
         const page=(accounts.data||[]).find(a=>a.instagram_business_account?.id);
