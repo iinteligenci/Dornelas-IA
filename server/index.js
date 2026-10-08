@@ -3,6 +3,8 @@ import { createOAuthState } from "./security/state.js";
 import { metaAuthorizeUrl, exchangeMetaCode, exchangeForLongLivedMetaToken, metaGraphGet, metaGraphPost } from "./integrations/meta.js";
 import { googleAuthorizeUrl, exchangeGoogleCode, googleApiGet } from "./integrations/google.js";
 import crypto from "node:crypto";
+import { runAI } from "./integrations/ai.js";
+import { SYSTEM_PROMPT, CAMPAIGN_PROMPT } from "./agent/ai-prompts.js";
 
 function cookieToken(secret, value) {
   const key = crypto.createHash("sha256").update(String(secret || "")).digest();
@@ -45,7 +47,7 @@ const demoContext = {
   }
 };
 
-const server = await import("node:http").then(({ createServer }) =>
+function readBody(req) { return new Promise(async (resolve) => { let body=""; for await (const chunk of req) body+=chunk; resolve(body); }); }\n\nconst server = await import("node:http").then(({ createServer }) =>
   createServer(async (req, res) => {
     res.setHeader("Content-Type", "application/json; charset=utf-8");
     res.setHeader("Access-Control-Allow-Origin", "https://iinteligenci.github.io");
@@ -210,114 +212,68 @@ const server = await import("node:http").then(({ createServer }) =>
       return;
     }
 
+    if (req.method === "POST" && req.url === "/agent/analyze") {
+      try {
+        const input = JSON.parse(await readBody(req) || "{}");
+        const result = await runAI({
+          instructions: SYSTEM_PROMPT,
+          input: JSON.stringify({
+            task: "Analise o aplicativo e o negócio como um todo. Identifique oportunidades de aumento de vendas, gargalos, riscos, dados ausentes e as 3 próximas ações priorizadas.",
+            autonomyLevel: Number(input.autonomyLevel || 0),
+            business: "Defumados Dornelas",
+            context: input.context || {}
+          })
+        });
+        res.end(JSON.stringify({ok:true,ai:true,model:result.model,analysis:result.text,responseId:result.responseId}));
+      } catch(error) {
+        res.statusCode=502; res.end(JSON.stringify({error:"ai_analysis_failed",message:error.message}));
+      }
+      return;
+    }
+
     if (req.method === "POST" && req.url === "/agent/campaign") {
-      let body=""; for await (const chunk of req) body+=chunk;
       try {
-        const input=JSON.parse(body||"{}");
-        const product=input.product||"Bacon";
-        const drafts={
-          Bacon:{headline:"Bacon Dornelas: sabor defumado de verdade.",caption:"Bacon artesanal, defumado lentamente e pronto para transformar o seu churrasco. Quer pedir? Acesse o catálogo e faça seu pedido.",cta:"Pedir agora"},
-          "Kit Feijoada":{headline:"Kit Feijoada Dornelas.",caption:"Tudo pensado para uma feijoada caprichada. Consulte o catálogo, escolha seu kit e faça seu pedido.",cta:"Ver kit e pedir"}
-        };
-        const draft=drafts[product]||{headline:product+" Dornelas",caption:"Conheça nossos produtos e faça seu pedido pelo catálogo.",cta:"Ver catálogo"};
-        res.end(JSON.stringify({ok:true,objective:"increase_sales",product,draft,approvalRequired:true}));
-      } catch(error) { res.statusCode=400; res.end(JSON.stringify({error:"invalid_request"})); }
-      return;
-    }
-
-    if (req.method === "GET" && req.url === "/meta/overview") {
-      if (!metaConnection?.accessToken) {
-        res.statusCode = 401;
-        res.end(JSON.stringify({ error: "meta_not_connected" }));
-        return;
-      }
-      try {
-        const accounts = await metaGraphGet({
-          path: "/me/accounts",
-          accessToken: metaConnection.accessToken,
-          params: { fields: "id,name,instagram_business_account" }
+        const input = JSON.parse(await readBody(req) || "{}");
+        const product = input.product || "Bacon";
+        const result = await runAI({
+          instructions: CAMPAIGN_PROMPT,
+          input: JSON.stringify({
+            business:"Defumados Dornelas", product,
+            autonomyLevel:Number(input.autonomyLevel || 0),
+            instagram:input.instagram || null, google:input.google || null,
+            sales:input.sales || null, catalog:input.catalog || null
+          })
         });
-        const page = (accounts.data || []).find(a => a.instagram_business_account?.id);
-        if (!page) {
-          res.statusCode = 404;
-          res.end(JSON.stringify({ error: "instagram_account_not_found", message: "Nenhuma conta Instagram profissional vinculada a uma Página foi encontrada." }));
-          return;
-        }
-        const igId = page.instagram_business_account.id;
-        const [profile, media] = await Promise.all([
-          metaGraphGet({ path: "/" + igId, accessToken: metaConnection.accessToken, params: { fields: "id,username,name,followers_count,media_count" } }),
-          metaGraphGet({ path: "/" + igId + "/media", accessToken: metaConnection.accessToken, params: { fields: "id,caption,like_count,comments_count,timestamp,permalink,media_type,media_url", limit: "25" } })
-        ]);
-        res.end(JSON.stringify({ page: { id: page.id, name: page.name }, instagram: profile, media: media.data || [] }));
-      } catch (error) {
-        res.statusCode = 502;
-        res.end(JSON.stringify({ error: "meta_graph_failed", message: error.message }));
-      }
-      return;
-    }
-
-    if (req.method === "GET" && req.url === "/meta/accounts") {
-      if (!metaConnection?.accessToken) {
-        const saved = readCookie(req, "dornelas_meta");
-        const parsed = saved ? decryptCookie(process.env.META_CLIENT_SECRET, saved) : null;
-        if (parsed) { try { const data = JSON.parse(parsed); metaConnection = { accessToken: data.accessToken, expiresAt: data.expiresAt || null, connected: true }; } catch {} }
-      }
-      if (!metaConnection?.accessToken) {
-        res.statusCode = 401;
-        res.end(JSON.stringify({ error: "meta_not_connected" }));
-        return;
-      }
-      try {
-        const result = await metaGraphGet({
-          path: "/me/accounts",
-          accessToken: metaConnection.accessToken,
-          params: { fields: "id,name,instagram_business_account" }
-        });
-        res.end(JSON.stringify(result));
-      } catch (error) {
-        res.statusCode = 502;
-        res.end(JSON.stringify({ error: "meta_graph_failed", message: error.message }));
-      }
-      return;
-    }
-
-    if (req.method === "GET" && req.url === "/health") {
-      res.end(JSON.stringify({ ok: true, service: "dornelas-ia-agent" }));
-      return;
-    }
-
-    if (req.method === "POST" && req.url === "/agent/cycle") {
-      let context = { ...demoContext };
-      if (metaConnection?.accessToken) {
+        let campaign;
         try {
-          const accounts = await metaGraphGet({
-            path: "/me/accounts",
-            accessToken: metaConnection.accessToken,
-            params: { fields: "id,name,instagram_business_account" }
-          });
-          const page = (accounts.data || []).find(a => a.instagram_business_account?.id);
-          if (page) {
-            const igId = page.instagram_business_account.id;
-            const [profile, media] = await Promise.all([
-              metaGraphGet({ path: "/" + igId, accessToken: metaConnection.accessToken, params: { fields: "id,username,followers_count,media_count" } }),
-              metaGraphGet({ path: "/" + igId + "/media", accessToken: metaConnection.accessToken, params: { fields: "id,caption,like_count,comments_count,timestamp,permalink,media_type", limit: "25" } })
-            ]);
-            context = { ...context, instagram: { profile, media: media.data || [] } };
-          }
-        } catch (error) {
-          console.error("Meta cycle data failed:", error.message);
+          campaign=JSON.parse(result.text.replace(/^\`\`\`json\\n?|\`\`\`$/g,"").trim());
+        } catch {
+          campaign={headline:product+" Dornelas",caption:result.text,cta:"Pedir agora"};
         }
+        res.end(JSON.stringify({ok:true,ai:true,model:result.model,product,campaign,approvalRequired:true}));
+      } catch(error) {
+        res.statusCode=502; res.end(JSON.stringify({error:"ai_campaign_failed",message:error.message}));
       }
-      const result = await runSalesCycle(context);
-      res.end(JSON.stringify(result));
       return;
     }
 
-    res.statusCode = 404;
-    res.end(JSON.stringify({ error: "not_found" }));
-  })
-);
+    if (req.method === "POST" && req.url === "/agent/campaign/approve") {
+      try {
+        const input = JSON.parse(await readBody(req) || "{}");
+        if (!input.approved) throw new Error("A campanha precisa de autorização explícita do usuário.");
+        if (Number(input.autonomyLevel || 0) < 2) throw new Error("Autonomia nível 2 ou superior é necessária.");
+        if (!input.imageUrl || !input.caption) throw new Error("A campanha autorizada precisa de imagem pública e legenda.");
+        if (!metaConnection?.accessToken) throw new Error("Instagram / Meta não está conectado.");
+        const accounts=await metaGraphGet({path:"/me/accounts",accessToken:metaConnection.accessToken,params:{fields:"id,name,instagram_business_account"}});
+        const page=(accounts.data||[]).find(a=>a.instagram_business_account?.id);
+        if(!page) throw new Error("Conta Instagram profissional não encontrada.");
+        const igId=page.instagram_business_account.id;
+        const creation=await metaGraphPost({path:"/"+igId+"/media",accessToken:metaConnection.accessToken,body:{image_url:input.imageUrl,caption:input.caption}});
+        const published=await metaGraphPost({path:"/"+igId+"/media_publish",accessToken:metaConnection.accessToken,body:{creation_id:creation.id}});
+        res.end(JSON.stringify({ok:true,approved:true,published,creation}));
+      } catch(error) {
+        res.statusCode=502; res.end(JSON.stringify({error:"campaign_approval_failed",message:error.message}));
+      }
+      return;
+    }
 
-server.listen(port, "0.0.0.0", () => {
-  console.log(`Dornelas IA backend listening on :${port}`);
-});
