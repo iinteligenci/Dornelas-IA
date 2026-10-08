@@ -262,8 +262,17 @@ const server = await import("node:http").then(({ createServer }) =>
           try { const data = JSON.parse(parsed); metaConnection = { accessToken: data.accessToken, expiresAt: data.expiresAt || null, connected: true, authType:data.authType||"facebook_login", instagramUserId:data.instagramUserId||null }; } catch {}
         }
       }
+      let targetAvailable=false, targetError=null, target=null;
+      if(metaConnection?.accessToken){
+        try{target=await getInstagramTarget();targetAvailable=Boolean(target?.igId);}catch(error){targetError=error.message;}
+      }
       res.end(JSON.stringify({
         connected: Boolean(metaConnection?.accessToken),
+        targetAvailable,
+        targetError,
+        authType: metaConnection?.authType || null,
+        instagramUserId: metaConnection?.instagramUserId || null,
+        target: target?{authType:target.authType,igId:target.igId,username:target.page?.name||null}:null,
         expiresAt: metaConnection?.expiresAt || null
       }));
       return;
