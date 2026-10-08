@@ -767,6 +767,44 @@ Cada quickWin deve ser executável e verificável. Não invente dados. Se não h
       return;
     }
 
+    if (req.method === "POST" && req.url === "/agent/ux-test") {
+      const scenarios=[
+        ["health","GET","/health"],["meta_status","GET","/meta/status"],["site_status","GET","/site/status"],["site_catalog","GET","/site/catalog"],
+        ["schedule","GET","/agent/schedule"],["trends","GET","/agent/trends"],["config_audit","GET","/agent/config-audit"],
+        ["chat_bacon","POST","/agent/chat",{message:"Crie uma legenda curta para Bacon Dornelas.",history:[]}],
+        ["chat_feijoada","POST","/agent/chat",{message:"Crie uma oferta para Kit Feijoada usando apenas dados reais.",history:[]}],
+        ["chat_strategy","POST","/agent/chat",{message:"Escolha a próxima ação comercial mais importante.",history:[]}],
+        ["chat_reel","POST","/agent/chat",{message:"Crie um roteiro de Reel para vender bacon.",history:[]}],
+        ["chat_site","POST","/agent/chat",{message:"Analise como aumentar conversão do site.",history:[]}],
+        ["chat_history","POST","/agent/chat",{message:"Continue a estratégia.",history:[{role:"user",text:"Quero vender mais"},{role:"assistant",text:"Vamos priorizar o site."}]}],
+        ["sales_kit","GET","/agent/sales-kit"],["self_audit","POST","/agent/self-audit",{}],
+        ["site_improvements","POST","/agent/site-improvements",{}],["knowledge_collect","POST","/agent/knowledge/collect",{}],
+        ["content_plan","POST","/agent/content-plan",{goal:"vender mais",catalog:{products:[]}}],
+        ["research","POST","/agent/research",{query:"ideias de venda para defumados"}],
+        ["reuse","POST","/agent/reuse",{text:"Bacon artesanal Defumados Dornelas"}],
+        ["campaign","POST","/agent/campaign",{goal:"vender bacon"}],
+        ["agent_analyze","POST","/agent/analyze",{goal:"encontrar oportunidade"}],
+        ["image_guard","POST","/agent/image",{prompt:"imagem comercial de bacon"}],
+        ["clip_guard","POST","/agent/clip",{sourceUrl:"https://example.com/video.mp4"}],
+        ["schedule_read","GET","/agent/schedule"],["meta_data","GET","/meta/data"],["google_data","GET","/google/data"],
+        ["site_improvements_repeat","POST","/agent/site-improvements",{}],["trends_repeat","GET","/agent/trends"],
+        ["knowledge_test","POST","/agent/knowledge/test",{}]
+      ];
+      const results=[];
+      for(const s of scenarios){
+        const [name,method,path,body]=s; const t=Date.now();
+        try{
+          const base="http://127.0.0.1:"+port;
+          const response=await fetch(base+path,{method,headers:body!==undefined?{"Content-Type":"application/json"}:undefined,body:body!==undefined?JSON.stringify(body):undefined});
+          const raw=await response.text(); let data=null; try{data=JSON.parse(raw)}catch{}
+          results.push({name,method,path,status:response.status,ok:response.status<500,ms:Date.now()-t,error:data?.error||null});
+        }catch(error){results.push({name,method,path,status:0,ok:false,ms:Date.now()-t,error:error.message});}
+      }
+      const failures=results.filter(x=>!x.ok);
+      res.end(JSON.stringify({ok:failures.length===0,tests:results.length,failures,results}));
+      return;
+    }
+
     if (req.method === "POST" && req.url === "/agent/knowledge/test") {
       const startedAt=new Date().toISOString();
       const results={};
