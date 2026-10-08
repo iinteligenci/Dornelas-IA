@@ -740,6 +740,32 @@ Não invente estoque, avaliações, resultados ou promoções.`,
       return;
     }
 
+    if (req.method === "POST" && req.url === "/agent/knowledge/test") {
+      const startedAt=new Date().toISOString();
+      const results={};
+      const test=async(name,fn)=>{
+        const attempts=[];
+        for(let i=1;i<=10;i++){
+          const t=Date.now();
+          try{const value=await fn();attempts.push({attempt:i,ok:true,ms:Date.now()-t,summary:typeof value==="string"?value:(value?.id||value?.username||value?.title||"ok")});}
+          catch(error){attempts.push({attempt:i,ok:false,ms:Date.now()-t,error:error.message});}
+        }
+        results[name]={passed:attempts.filter(x=>x.ok).length,total:10,attempts};
+      };
+      await test("IA",async()=>{const r=await runAI({instructions:"Responda somente OK.",input:"connection test"});return r.model;});
+      await test("Site",async()=>{const s=await fetchSiteSnapshot();return s.title;});
+      await test("Catalogo+IA",async()=>{const c=await fetchSiteCatalog();return String(c.products?.length||0)+" produtos";});
+      await test("Google Trends",async()=>{const t=await getPublicTrends();return String(t.trends?.length||0)+" tendências";});
+      await test("GitHub data store",async()=>{const s=await githubJsonGet(schedulerPath());return String(Array.isArray(s.content)?s.content.length:0)+" agenda";});
+      await test("Meta/Instagram",async()=>{const target=await getInstagramTarget();return target.igId;});
+      await test("Google Business",async()=>{const d=await getGoogleBusinessData();return String(d.locations?.length||0)+" locais";});
+      const all=Object.values(results);
+      const report={ok:all.every(x=>x.passed===10),startedAt,finishedAt:new Date().toISOString(),results};
+      try{const path="generated/ai/connection-tests.json";const current=await githubJsonGet(path);await githubJsonPut(path,report,current.sha||undefined);}catch(error){report.storageError=error.message;}
+      res.end(JSON.stringify(report));
+      return;
+    }
+
     if (req.method === "POST" && req.url === "/agent/knowledge/collect") {
       try{
         const errors=[];
