@@ -21,3 +21,14 @@ export async function exchangeGoogleCode({ clientId, clientSecret, redirectUri, 
   if (!response.ok) throw new Error("Google OAuth exchange failed: " + response.status);
   return response.json();
 }
+
+
+export async function googleApiGet({ url, accessToken, params = {} }) {
+  const query = new URLSearchParams(params);
+  const response = await fetch(url + (query.toString() ? "?" + query.toString() : ""), {
+    headers: { Authorization: "Bearer " + accessToken }
+  });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data?.error?.message || "Google API failed: " + response.status);
+  return data;
+}
