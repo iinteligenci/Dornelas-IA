@@ -229,7 +229,7 @@ const server = await import("node:http").then(({ createServer }) =>
         const product=input.product||"Bacon";
         const result=await runAI({instructions:CAMPAIGN_PROMPT,input:JSON.stringify({business:"Defumados Dornelas",product,autonomyLevel:Number(input.autonomyLevel||0),instagram:input.instagram||null,google:input.google||null,sales:input.sales||null,catalog:input.catalog||null})});
         let campaign;
-        try { campaign=JSON.parse(result.text.trim().replace(/^\`\`\`json\\n?|\`\`\`$/g,"")); }
+        try { campaign=JSON.parse(result.text.trim().replaceAll("```json","").replaceAll("```","").trim()); }
         catch { campaign={headline:product+" Dornelas",caption:result.text,cta:"Pedir agora"}; }
         res.end(JSON.stringify({ok:true,ai:true,model:result.model,product,campaign,approvalRequired:true}));
       } catch(error) { res.statusCode=502; res.end(JSON.stringify({error:"ai_campaign_failed",message:error.message})); }
