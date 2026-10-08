@@ -17,6 +17,7 @@ function App(){
  const [metaConnected,setMetaConnected]=useState(false);
  const [googleConnected,setGoogleConnected]=useState(false);
  const [error,setError]=useState('');
+ const [metaData,setMetaData]=useState(null);
 
  const refreshConnections=async()=>{
    try{
@@ -52,10 +53,10 @@ function App(){
   <main>
    {active==='Visão geral'&&<Overview autonomy={autonomy} setAutonomy={setAutonomy} running={running} run={run} actions={actions} metaConnected={metaConnected} googleConnected={googleConnected} refreshConnections={refreshConnections} error={error}/>}
    {active==='Integrações'&&<Integrations metaConnected={metaConnected} googleConnected={googleConnected} refreshConnections={refreshConnections}/>}
-   {active==='Campanhas'&&<Panel title="Campanhas" text="A estrutura de campanhas está pronta para receber dados reais e executar ações autorizadas. Publicação automática ainda depende das permissões e endpoints de execução."/>}
-   {active==='Conteúdo'&&<Panel title="Conteúdo" text="O agente já analisa desempenho do Instagram. A próxima camada é transformar essa análise em conteúdo e publicação autorizada."/>}
-   {active==='Permissões'&&<Panel title="Permissões" text="As integrações usam OAuth e permissões específicas. Nenhuma senha deve ser colocada no sistema."/>}
-   {active==='Resultados'&&<Panel title="Resultados" text="Os indicadores reais serão preenchidos conforme site, pedidos e canais de venda forem conectados."/>}
+   {active==='Campanhas'&&<Campaigns setActions={setActions}/>} 
+   {active==='Conteúdo'&&<Content metaConnected={metaConnected} metaData={metaData} setMetaData={setMetaData} setActions={setActions}/>} 
+   {active==='Permissões'&&<Permissions autonomy={autonomy} setAutonomy={setAutonomy}/>} 
+   {active==='Resultados'&&<Results metaConnected={metaConnected} metaData={metaData}/>} 
    {active==='Auditoria'&&<Audit actions={actions}/>}
   </main>
  </div>
@@ -77,6 +78,24 @@ function Connections({metaConnected,googleConnected,refreshConnections}){return 
 function Integrations({metaConnected,googleConnected,refreshConnections}){return <><header><div><span className="eyebrow">INTEGRAÇÕES</span><h1>Conectar e manter conectado.</h1><p>As conexões autorizadas ficam disponíveis ao agente sem armazenar senhas.</p></div><button className="primary" onClick={refreshConnections}>Verificar conexões</button></header><section className="card"><Connection name="Instagram / Meta" status={metaConnected?"Conectado":"OAuth necessário"} connected={metaConnected}/><Connection name="Google Business Profile" status={googleConnected?"Conectado":"OAuth necessário"} connected={googleConnected}/><Connection name="Site Dornelas" status="Ainda não implementado"/><Connection name="Pedidos / vendas" status="Ainda não implementado"/></section><div className="notice">Meta já está conectada. A persistência usa cookie HttpOnly seguro; a conexão depende da validade do token autorizado.</div></>}
 
 function Connection({name,status,connected=false}){const isMeta=name.includes("Instagram");const isGoogle=name.includes("Google");const connect=()=>{if(isMeta)window.location.href=API+"/auth/meta";else if(isGoogle)window.location.href=API+"/auth/google";};const active=isMeta||isGoogle;return <div className="connection"><div><b>{name}</b><small>{status}</small></div><button onClick={connect} disabled={!active}>{connected?"Reconectar":(active?"Conectar":"Em breve")}</button></div>}
+
+function Campaigns({setActions}){
+ const [product,setProduct]=useState("Bacon"),[draft,setDraft]=useState(null),[busy,setBusy]=useState(false);
+ const generate=async()=>{setBusy(true);try{const r=await fetch(API+"/agent/campaign",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({product})});const d=await r.json();if(!r.ok)throw Error(d.message||d.error);setDraft(d.draft);setActions(a=>[{time:new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}),title:"Campanha preparada",detail:product+" — rascunho comercial criado.",status:"Rascunho"},...a]);}catch(e){alert(e.message)}finally{setBusy(false)}};
+ return <><header><div><span className="eyebrow">CAMPANHAS</span><h1>Criar campanha comercial.</h1><p>A IA prepara a campanha com objetivo de venda.</p></div><button className="primary" onClick={generate} disabled={busy}>{busy?"Gerando…":"Gerar campanha"}</button></header><section className="card form"><label>Produto</label><select value={product} onChange={e=>setProduct(e.target.value)}><option>Bacon</option><option>Kit Feijoada</option></select>{draft&&<div className="draft"><h3>{draft.headline}</h3><p>{draft.caption}</p><b>CTA: {draft.cta}</b></div>}</section></>
+}
+
+function Content({metaConnected,metaData,setMetaData,setActions}){
+ const [loading,setLoading]=useState(false),[caption,setCaption]=useState("Bacon Dornelas: sabor defumado de verdade. Quer pedir? Acesse o catálogo e faça seu pedido."),[imageUrl,setImageUrl]=useState("");
+ const load=async()=>{setLoading(true);try{const r=await fetch(API+"/meta/data",{credentials:"include"});const d=await r.json();if(!r.ok)throw Error(d.message||d.error);setMetaData(d);setActions(a=>[{time:new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}),title:"Dados do Instagram atualizados",detail:(d.media||[]).length+" publicações carregadas pela API.",status:"Concluído"},...a]);}catch(e){alert(e.message)}finally{setLoading(false)}};
+ const publish=async()=>{if(!imageUrl)return alert("Informe uma URL pública da imagem.");const r=await fetch(API+"/meta/publish",{method:"POST",headers:{"Content-Type":"application/json"},credentials:"include",body:JSON.stringify({imageUrl,caption})});const d=await r.json();if(!r.ok)return alert(d.message||d.error);setActions(a=>[{time:new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}),title:"Publicação enviada ao Instagram",detail:"A API da Meta aceitou a publicação.",status:"Executado"},...a]);alert("Publicação enviada com sucesso.");load()};
+ return <><header><div><span className="eyebrow">CONTEÚDO</span><h1>Conteúdo e desempenho.</h1><p>Consulta dados reais e permite publicação autorizada.</p></div><button className="primary" onClick={load} disabled={!metaConnected||loading}>{loading?"Lendo…":"Ler Instagram"}</button></header>{!metaConnected?<div className="notice">Conecte Instagram / Meta primeiro.</div>:<><div className="grid"><Metric title="Seguidores" value={metaData?.profile?.followers_count??"—"} note="Instagram"/><Metric title="Publicações" value={metaData?.profile?.media_count??"—"} note="Conta conectada"/><Metric title="Alcance" value={insightValue(metaData,"reach")} note="Meta Insights"/><Metric title="Interações" value={insightValue(metaData,"total_interactions")} note="Meta Insights"/></div><section className="card form"><h3>Publicar no Instagram</h3><p className="muted">A publicação usa a API oficial da Meta.</p><label>URL pública da imagem</label><input value={imageUrl} onChange={e=>setImageUrl(e.target.value)} placeholder="https://.../imagem.jpg"/><label>Legenda</label><textarea value={caption} onChange={e=>setCaption(e.target.value)} rows="5"/><button className="primary" onClick={publish}>Publicar autorizado</button></section><section className="card"><h3>Últimas publicações</h3>{(metaData?.media||[]).slice(0,8).map(m=><div className="action" key={m.id}><div className="time">{new Date(m.timestamp).toLocaleDateString('pt-BR')}</div><div className="actionbody"><div className="actiontitle">{m.like_count||0} curtidas · {m.comments_count||0} comentários</div><p>{m.caption||"Sem legenda"}</p></div></div>)}</section></>}</>
+}
+function insightValue(data,key){const x=(data?.insights||[]).find(i=>i.name===key);return x?.values?.[0]?.value??"—"}
+
+function Permissions({autonomy,setAutonomy}){return <><header><div><span className="eyebrow">PERMISSÕES</span><h1>Limites do agente.</h1><p>Controle o nível de autonomia antes de permitir ações externas.</p></div></header><section className="card form"><label>Nível de autonomia</label><select value={autonomy} onChange={e=>setAutonomy(+e.target.value)}><option value="0">0 — Observar</option><option value="1">1 — Preparar</option><option value="2">2 — Executar ações autorizadas</option><option value="3">3 — Autonomia de vendas</option></select><div className="rules"><span>✓ Leitura Meta</span><span>✓ Rascunho de campanhas</span><span>✓ Publicação Meta condicionada à permissão</span><span>✕ Descontos automáticos</span><span>✕ Mensagem em massa</span></div></section></>}
+
+function Results({metaConnected,metaData}){return <><header><div><span className="eyebrow">RESULTADOS</span><h1>Resultados reais.</h1><p>Indicadores vindos das integrações conectadas.</p></div></header><div className="grid"><Metric title="Seguidores" value={metaConnected?(metaData?.profile?.followers_count??"—"):"—"} note="Instagram"/><Metric title="Publicações" value={metaData?.media?.length??"—"} note="Analisadas"/><Metric title="Alcance" value={insightValue(metaData,"reach")} note="Meta Insights"/><Metric title="Interações" value={insightValue(metaData,"total_interactions")} note="Meta Insights"/></div></>}
 
 function Panel({title,text}){return <><header><div><span className="eyebrow">MÓDULO</span><h1>{title}</h1><p>{text}</p></div></header><section className="card empty"><h3>{title}</h3><p>{text}</p><span className="statusTag">Funcionalidade em implementação</span></section></>}
 
