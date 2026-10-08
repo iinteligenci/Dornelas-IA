@@ -72,7 +72,7 @@ function Central({meta,site,health,audit,loading,connect,runAudit,repair,message
    <Metric title="IA" value={health?.aiConfigured?"Pronta":"Erro"} note={health?.aiConfigured?"modelo configurado":"ver configuração do servidor"}/>
    <Metric title="Instagram" value={instagramReady?"Pronto":meta?.connected?"Meta conectada":"Pendente"} note={profile?("@"+(profile.username||"conta")):(meta?.targetError||"dados ainda não lidos")}/>
    <Metric title="Site" value={site?.connected?"Conectado":"Erro"} note={site?.connected?"catálogo disponível para análise":"não acessível"}/>
-   <Metric title="Publicação" value="Automática" note="após autorização e conexão Meta"/>
+   <Metric title="Modo atual" value={instagramReady?"Instagram":"Venda"} note={instagramReady?"publicação automática disponível":"IA de vendas funcionando sem Instagram"}/>
   </div>
   <section className="card">
    <div className="cardhead"><div><span className="eyebrow">PRÓXIMA MELHOR AÇÃO</span><h2>Deixe a IA decidir o próximo passo.</h2></div><span className="pill green">foco em vendas</span></div>
@@ -80,6 +80,7 @@ function Central({meta,site,health,audit,loading,connect,runAudit,repair,message
    <Action title="2 · Encontrar assunto em alta" text="Usar pesquisa pública + dados próprios para escolher temas com potencial comercial." button="Gerar agora" onClick={()=>setTab("chat")}/>
    <Action title="3 · Criar e publicar" text="Gerar legenda/arte/Reels, testar variações e agendar ou publicar quando autorizado." button="Abrir IA" onClick={()=>setTab("chat")}/></div>
   </section>
+  <section className="card sales-mode-card"><div className="cardhead"><div><span className="eyebrow">MODO VENDA</span><h2>Você não precisa esperar o Instagram.</h2></div><span className="pill green">funcionando agora</span></div><p className="muted">A IA usa o catálogo do seu site, pesquisa pública e os prints que você enviar para criar conteúdo pronto para vender. A conexão automática do Instagram fica como etapa posterior.</p><div className="next-grid"><Action title="Pacote de conteúdo" text="3 posts + 1 Reel + Stories, já pensados para gerar pedidos." button="Criar pacote" onClick={()=>setTab("chat")}/><Action title="Analisar print" text="Envie um print dos Insights e eu transformo os números em decisões." button="Abrir IA" onClick={()=>setTab("chat")}/></div></section>
   {audit&&<section className="card"><div className="cardhead"><div><span className="eyebrow">AUTOAVALIAÇÃO</span><h2>Diagnóstico do sistema</h2></div><span className={"pill "+(audit.ok?"green":"yellow")}>{audit.ok?"OK":"atenção"}</span></div><pre>{JSON.stringify(audit,null,2)}</pre><button className="primary" onClick={repair} disabled={loading}>Aplicar correções seguras</button></section>}
   <section className="card"><div className="cardhead"><div><span className="eyebrow">CONEXÃO INSTAGRAM</span><h2>{instagramReady?"Instagram pronto para a IA.":"A Meta foi autorizada, mas o Instagram ainda não está acessível."}</h2></div></div><p className="muted">{instagramReady?"Agora a IA pode ler dados e preparar/publicar conteúdo conforme as permissões.":meta?.connected?"O diagnóstico encontrou o token da Meta, mas nenhum Instagram profissional ligado à Página autorizada. No fluxo atual, é necessário vincular o Instagram profissional à Página do Facebook e depois reconectar.":"Conecte pela Meta para liberar os dados oficiais. Não coloque sua senha do Instagram no aplicativo."}</p>{!instagramReady&&<button className="secondary" onClick={connect}>{meta?.connected?"Reconectar Meta":"Conectar Instagram"}</button>}</section>
  </div>
@@ -89,7 +90,7 @@ function Action({title,text,button,onClick}){return <div className="next-action"
 function Metric({title,value,note}){return <div className="metric"><span>{title}</span><strong>{value}</strong><small>{note}</small></div>}
 
 function Chat({meta}){
- const [messages,setMessages]=useState([{role:"assistant",text:"Sou o cérebro comercial da Dornelas. Posso analisar seu Instagram, prints de Insights, catálogo e desempenho e transformar isso em conteúdo e ações de venda."}]);
+ const [messages,setMessages]=useState([{role:"assistant",text:"Sou o cérebro comercial da Dornelas. Posso trabalhar agora mesmo sem Instagram conectado: uso o catálogo do site, tendências públicas e os prints de Insights que você enviar. Minha meta é transformar isso em pedidos."}]);
  const [input,setInput]=useState(""); const [busy,setBusy]=useState(false); const [image,setImage]=useState(null); const [copied,setCopied]=useState(false);
  const send=async(text=input)=>{
   if((!text.trim()&&!image)||busy)return;
@@ -100,13 +101,21 @@ function Chat({meta}){
    const d=await r.json();if(!r.ok)throw Error(d.message||d.error);setMessages(m=>[...m,{role:"assistant",text:d.response||"Sem resposta."}]);
   }catch(e){setMessages(m=>[...m,{role:"assistant",text:"Erro: "+e.message}])}finally{setBusy(false);setImage(null)}
  };
+ const salesKit=async()=>{
+  if(busy)return; setBusy(true);
+  setMessages(m=>[...m,{role:"user",text:"Crie meu pacote comercial agora: 3 posts, 1 Reel e Stories."}]);
+  try{
+   const r=await fetch(API+"/agent/sales-kit");const d=await r.json();if(!r.ok)throw Error(d.message||d.error);
+   setMessages(m=>[...m,{role:"assistant",text:JSON.stringify(d.package,null,2)}]);
+  }catch(e){setMessages(m=>[...m,{role:"assistant",text:"Erro ao criar pacote: "+e.message}])}finally{setBusy(false)}
+ };
  const file=async e=>{const f=e.target.files?.[0];if(!f)return;if(!f.type.startsWith("image/"))return alert("Envie uma imagem.");if(f.size>6*1024*1024)return alert("Print muito grande. Use até 6 MB.");const reader=new FileReader();reader.onload=()=>setImage({preview:reader.result,dataUrl:reader.result});reader.readAsDataURL(f)};
  const copy=async t=>{await navigator.clipboard.writeText(t);setCopied(true);setTimeout(()=>setCopied(false),1200)};
- return <div className="page"><section className="card chat-card"><div className="cardhead"><div><span className="eyebrow">CÉREBRO COMERCIAL</span><h1>O que vamos postar?</h1></div><span className="pill green">sempre focado em venda</span></div>
+ return <div className="page"><section className="card chat-card"><div className="cardhead"><div><span className="eyebrow">CÉREBRO COMERCIAL</span><h1>O que vamos vender?</h1></div><span className="pill green">modo venda ativo</span></div>
   <div className="chat-list">{messages.map((m,i)=><div className={"bubble "+m.role} key={i}>{m.image&&<img src={m.image} alt="print enviado"/>}<b>{m.role==="user"?"Você":"Dornelas IA"}</b><p>{m.text}</p>{m.role==="assistant"&&<button className="mini" onClick={()=>copy(m.text)}>{copied?"✓ Copiado":"Copiar"}</button>}</div>)}</div>
   {image&&<div className="attachment">Print anexado <button onClick={()=>setImage(null)}>×</button></div>}
-  <div className="chat-compose"><label className="attach">＋<input type="file" accept="image/*" onChange={file}/></label><input value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>e.key==="Enter"&&send()} placeholder="Ex.: encontre a melhor ideia para vender bacon esta semana"/><button className="primary" onClick={()=>send()} disabled={busy}>{busy?"Pensando…":"Enviar"}</button></div>
-  <div className="quick"><button onClick={()=>send("Analise meus últimos resultados e escolha a próxima publicação.")}>Analisar Instagram</button><button onClick={()=>send("Crie 3 ideias de conteúdo em alta para vender Bacon Dornelas.")}>Conteúdo em alta</button><button onClick={()=>send("Monte um Reel com gancho forte para vender Kit Feijoada.")}>Reel</button></div>
+  <div className="chat-compose"><label className="attach">＋<input type="file" accept="image/*" onChange={file}/></label><input value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>e.key==="Enter"&&send()} placeholder="Ex.: faça uma campanha para vender bacon esta semana"/><button className="primary" onClick={()=>send()} disabled={busy}>{busy?"Pensando…":"Enviar"}</button></div>
+  <div className="quick"><button onClick={()=>send("Analise meus últimos resultados e escolha a próxima publicação.")}>Analisar dados</button><button onClick={()=>send("Crie 3 ideias de conteúdo em alta para vender Bacon Dornelas.")}>Conteúdo em alta</button><button onClick={()=>send("Monte um Reel com gancho forte para vender Kit Feijoada.")}>Reel</button><button className="primary" onClick={salesKit} disabled={busy}>Pacote de vendas</button></div>
  </section></div>
 }
 
