@@ -1,7 +1,7 @@
 import { runSalesCycle } from "./agent/cycle.js";
 import { createOAuthState } from "./security/state.js";
 import { metaAuthorizeUrl, exchangeMetaCode, exchangeForLongLivedMetaToken, metaGraphGet, metaGraphPost } from "./integrations/meta.js";
-import { googleAuthorizeUrl, exchangeGoogleCode } from "./integrations/google.js";
+import { googleAuthorizeUrl, exchangeGoogleCode, googleApiGet } from "./integrations/google.js";
 import crypto from "node:crypto";
 
 function cookieToken(secret, value) {
@@ -121,7 +121,7 @@ const server = await import("node:http").then(({ createServer }) =>
       if (!code) { res.statusCode = 400; res.end(JSON.stringify({ error: "missing_code" })); return; }
       try {
         const token = await exchangeGoogleCode({ clientId: process.env.GOOGLE_CLIENT_ID, clientSecret: process.env.GOOGLE_CLIENT_SECRET, redirectUri: process.env.GOOGLE_REDIRECT_URI, code });
-        googleConnection = { refreshToken: token?.refresh_token || null, connected: Boolean(token?.refresh_token) };
+        googleConnection = { accessToken: token?.access_token || null, refreshToken: token?.refresh_token || null, expiresAt: token?.expires_in ? Date.now()+Number(token.expires_in)*1000 : null, connected: Boolean(token?.access_token || token?.refresh_token) };
         if (googleConnection.refreshToken) {
           const googleCookie = cookieToken(process.env.GOOGLE_CLIENT_SECRET, JSON.stringify(googleConnection));
           res.setHeader("Set-Cookie", "dornelas_google=" + encodeURIComponent(googleCookie) + "; Path=/; Max-Age=31536000; HttpOnly; Secure; SameSite=None");
@@ -157,6 +157,21 @@ const server = await import("node:http").then(({ createServer }) =>
         if (parsed) { try { googleConnection = JSON.parse(parsed); } catch {} }
       }
       res.end(JSON.stringify({ connected: Boolean(googleConnection?.refreshToken) }));
+      return;
+    }
+
+    if (req.method === "GET" && req.url === "/google/data") {
+      if (!googleConnection?.accessToken) { res.statusCode=401; res.end(JSON.stringify({error:"google_not_connected"})); return; }
+      try {
+        const accounts = await googleApiGet({url:"https://mybusinessaccountmanagement.googleapis.com/v1/accounts",accessToken:googleConnection.accessToken});
+        const account=(accounts.accounts||[])[0];
+        let locations=[];
+        if(account?.name){
+          const data=await googleApiGet({url:"https://mybusinessbusinessinformation.googleapis.com/v1/"+account.name+"/locations",accessToken:googleConnection.accessToken,params:{readMask:"name,title,storefrontAddress,websiteUri"}});
+          locations=data.locations||[];
+        }
+        res.end(JSON.stringify({account,locations}));
+      } catch(error) { res.statusCode=502; res.end(JSON.stringify({error:"google_data_failed",message:error.message})); }
       return;
     }
 
