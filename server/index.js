@@ -47,7 +47,9 @@ const demoContext = {
   }
 };
 
-function readBody(req) { return new Promise(async (resolve) => { let body=""; for await (const chunk of req) body+=chunk; resolve(body); }); }\n\nconst server = await import("node:http").then(({ createServer }) =>
+function readBody(req) { return new Promise(async (resolve) => { let body=""; for await (const chunk of req) body+=chunk; resolve(body); }); }
+
+const server = await import("node:http").then(({ createServer }) =>
   createServer(async (req, res) => {
     res.setHeader("Content-Type", "application/json; charset=utf-8");
     res.setHeader("Access-Control-Allow-Origin", "https://iinteligenci.github.io");
@@ -342,6 +344,7 @@ function readBody(req) { return new Promise(async (resolve) => { let body=""; fo
       } catch(error) {
         result.ai={enabled:false,error:error.message};
       }
+      res.end(JSON.stringify(result));
       return;
     }
 
