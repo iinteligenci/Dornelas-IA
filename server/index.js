@@ -3,8 +3,9 @@ import { createOAuthState } from "./security/state.js";
 import { metaAuthorizeUrl, exchangeMetaCode, exchangeForLongLivedMetaToken, metaGraphGet, metaGraphPost } from "./integrations/meta.js";
 import { googleAuthorizeUrl, exchangeGoogleCode, googleApiGet } from "./integrations/google.js";
 import crypto from "node:crypto";
-import { runAI } from "./integrations/ai.js";
-import { SYSTEM_PROMPT, CAMPAIGN_PROMPT } from "./agent/ai-prompts.js";
+import { runAI, generateImage } from "./integrations/ai.js";
+import { publishPublicAsset, githubJsonGet, githubJsonPut } from "./integrations/assets.js";
+import { SYSTEM_PROMPT, CAMPAIGN_PROMPT, CONTENT_PLAN_PROMPT, RESEARCH_PROMPT, SITE_ANALYSIS_PROMPT, REUSE_PROMPT } from "./agent/ai-prompts.js";
 
 function cookieToken(secret, value) {
   const key = crypto.createHash("sha256").update(String(secret || "")).digest();
@@ -48,6 +49,24 @@ const demoContext = {
 };
 
 function readBody(req) { return new Promise(async (resolve) => { let body=""; for await (const chunk of req) body+=chunk; resolve(body); }); }
+
+function cleanJson(text) {
+  const raw=String(text||"").trim().replaceAll("\`\`\`json","").replaceAll("\`\`\`","").trim();
+  try { return JSON.parse(raw); } catch { return { raw }; }
+}
+
+async function fetchSiteSnapshot() {
+  const url=process.env.SITE_URL || "https://iinteligenci.github.io/dorn/";
+  const response=await fetch(url,{headers:{"User-Agent":"Dornelas-IA/1.0"}});
+  if(!response.ok) throw new Error("Site retornou HTTP "+response.status);
+  const html=await response.text();
+  const title=(html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1]||"").replace(/<[^>]+>/g,"").trim();
+  const links=[...html.matchAll(/<a[^>]+href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)].slice(0,60).map(m=>({href:m[1],text:m[2].replace(/<[^>]+>/g," ").replace(/\s+/g," ").trim()}));
+  const text=html.replace(/<script[\s\S]*?<\/script>/gi," ").replace(/<style[\s\S]*?<\/style>/gi," ").replace(/<[^>]+>/g," ").replace(/\s+/g," ").trim().slice(0,18000);
+  return {url,title,links,text};
+}
+
+function schedulerPath(){ return process.env.SCHEDULE_FILE || "generated/ai/schedule.json"; }
 
 const server = await import("node:http").then(({ createServer }) =>
   createServer(async (req, res) => {
@@ -220,6 +239,108 @@ const server = await import("node:http").then(({ createServer }) =>
         const result=await runAI({instructions:SYSTEM_PROMPT,input:JSON.stringify({task:"Analise o aplicativo e o negócio como um todo. Identifique oportunidades de aumento de vendas, gargalos, riscos, dados ausentes e as 3 próximas ações priorizadas.",autonomyLevel:Number(input.autonomyLevel||0),business:"Defumados Dornelas",context:input.context||{}})});
         res.end(JSON.stringify({ok:true,ai:true,model:result.model,analysis:result.text,responseId:result.responseId}));
       } catch(error) { res.statusCode=502; res.end(JSON.stringify({error:"ai_analysis_failed",message:error.message})); }
+      return;
+    }
+
+    if (req.method === "GET" && req.url === "/site/analyze") {
+      try {
+        const site=await fetchSiteSnapshot();
+        const result=await runAI({instructions:SITE_ANALYSIS_PROMPT,input:JSON.stringify(site)});
+        res.end(JSON.stringify({ok:true,site,result:cleanJson(result.text),model:result.model}));
+      } catch(error) { res.statusCode=502; res.end(JSON.stringify({error:"site_analysis_failed",message:error.message})); }
+      return;
+    }
+
+    if (req.method === "POST" && req.url === "/agent/research") {
+      try {
+        const input=JSON.parse(await readBody(req)||"{}");
+        const result=await runAI({instructions:RESEARCH_PROMPT,input:JSON.stringify({business:"Defumados Dornelas",focus:input.focus||"conteúdo que gere vendas",catalog:input.catalog||null}),tools:[{type:"web_search"}]});
+        res.end(JSON.stringify({ok:true,ai:true,model:result.model,research:cleanJson(result.text),responseId:result.responseId}));
+      } catch(error) { res.statusCode=502; res.end(JSON.stringify({error:"research_failed",message:error.message})); }
+      return;
+    }
+
+    if (req.method === "POST" && req.url === "/agent/content-plan") {
+      try {
+        const input=JSON.parse(await readBody(req)||"{}");
+        const site=await fetchSiteSnapshot();
+        const instagram=input.instagram||null;
+        const researchResult=await runAI({instructions:RESEARCH_PROMPT,input:JSON.stringify({business:"Defumados Dornelas",focus:"conteúdo de alimentação e defumados que gere vendas",site:site.text.slice(0,7000),instagram}),tools:[{type:"web_search"}]});
+        const planResult=await runAI({instructions:CONTENT_PLAN_PROMPT,input:JSON.stringify({business:"Defumados Dornelas",site,instagram,research:cleanJson(researchResult.text),catalog:input.catalog||null,now:new Date().toISOString()})});
+        res.end(JSON.stringify({ok:true,model:planResult.model,plan:cleanJson(planResult.text),research:cleanJson(researchResult.text),site}));
+      } catch(error) { res.statusCode=502; res.end(JSON.stringify({error:"content_plan_failed",message:error.message})); }
+      return;
+    }
+
+    if (req.method === "POST" && req.url === "/agent/reuse") {
+      try {
+        const input=JSON.parse(await readBody(req)||"{}");
+        const result=await runAI({instructions:REUSE_PROMPT,input:JSON.stringify({business:"Defumados Dornelas",media:input.media||[]})});
+        res.end(JSON.stringify({ok:true,model:result.model,reuse:cleanJson(result.text)}));
+      } catch(error) { res.statusCode=502; res.end(JSON.stringify({error:"reuse_failed",message:error.message})); }
+      return;
+    }
+
+    if (req.method === "POST" && req.url === "/agent/image") {
+      try {
+        const input=JSON.parse(await readBody(req)||"{}");
+        if(!input.prompt) throw new Error("prompt é obrigatório.");
+        const result=await generateImage({prompt:"Crie uma peça de conteúdo para a marca Defumados Dornelas. Estética artesanal, apetitosa e profissional. Não invente preços, selos, avaliações ou informações. "+input.prompt});
+        const asset=await publishPublicAsset({base64:result.b64,filename:"dornelas-"+Date.now()+".png"});
+        res.end(JSON.stringify({ok:true,model:result.model,...asset}));
+      } catch(error) { res.statusCode=502; res.end(JSON.stringify({error:"image_generation_failed",message:error.message})); }
+      return;
+    }
+
+    if (req.method === "GET" && req.url === "/agent/schedule") {
+      try {
+        const saved=await githubJsonGet(schedulerPath());
+        res.end(JSON.stringify({ok:true,schedule:saved.exists?saved.content:[]}));
+      } catch(error) { res.statusCode=502; res.end(JSON.stringify({error:"schedule_read_failed",message:error.message})); }
+      return;
+    }
+
+    if (req.method === "POST" && req.url === "/agent/schedule") {
+      try {
+        const input=JSON.parse(await readBody(req)||"{}");
+        if(!input.item?.scheduledFor) throw new Error("scheduledFor é obrigatório.");
+        if(!input.item?.caption) throw new Error("caption é obrigatório.");
+        if(!input.item?.imageUrl) throw new Error("imageUrl público é obrigatório para agendamento.");
+        if(!input.item?.approved) throw new Error("O conteúdo precisa ser confirmado antes do agendamento.");
+        const current=await githubJsonGet(schedulerPath());
+        const list=Array.isArray(current.content)?current.content:[];
+        const item={...input.item,id:input.item.id||crypto.randomUUID(),status:"scheduled",createdAt:new Date().toISOString()};
+        list.push(item);
+        await githubJsonPut(schedulerPath(),list,current.sha);
+        res.end(JSON.stringify({ok:true,item}));
+      } catch(error) { res.statusCode=502; res.end(JSON.stringify({error:"schedule_write_failed",message:error.message})); }
+      return;
+    }
+
+    if (req.method === "POST" && req.url === "/agent/scheduler/run") {
+      if(process.env.SCHEDULER_SECRET && req.headers["x-scheduler-secret"]!==process.env.SCHEDULER_SECRET) { res.statusCode=401; res.end(JSON.stringify({error:"invalid_scheduler_secret"})); return; }
+      try {
+        const current=await githubJsonGet(schedulerPath());
+        const list=Array.isArray(current.content)?current.content:[];
+        const now=Date.now();
+        const due=list.filter(x=>x.status==="scheduled"&&Date.parse(x.scheduledFor)<=now);
+        const results=[];
+        for(const item of due) {
+          try {
+            if(!metaConnection?.accessToken) throw new Error("Meta não conectada.");
+            const accounts=await metaGraphGet({path:"/me/accounts",accessToken:metaConnection.accessToken,params:{fields:"id,name,instagram_business_account"}});
+            const page=(accounts.data||[]).find(a=>a.instagram_business_account?.id);
+            if(!page) throw new Error("Conta Instagram profissional não encontrada.");
+            const igId=page.instagram_business_account.id;
+            const creation=await metaGraphPost({path:"/"+igId+"/media",accessToken:metaConnection.accessToken,body:{image_url:item.imageUrl,caption:item.caption}});
+            const published=await metaGraphPost({path:"/"+igId+"/media_publish",accessToken:metaConnection.accessToken,body:{creation_id:creation.id}});
+            item.status="published"; item.publishedAt=new Date().toISOString(); item.publishedId=published.id||null;
+            results.push({id:item.id,status:"published"});
+          } catch(error) { item.status="failed"; item.error=error.message; results.push({id:item.id,status:"failed",error:error.message}); }
+        }
+        if(due.length) await githubJsonPut(schedulerPath(),list,current.sha);
+        res.end(JSON.stringify({ok:true,processed:results}));
+      } catch(error) { res.statusCode=502; res.end(JSON.stringify({error:"scheduler_run_failed",message:error.message})); }
       return;
     }
 
