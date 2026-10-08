@@ -290,6 +290,30 @@ const server = await import("node:http").then(({ createServer }) =>
       return;
     }
 
+    if (req.method === "GET" && req.url === "/site/status") {
+      try {
+        const site=await fetchSiteSnapshot();
+        res.end(JSON.stringify({ok:true,connected:true,url:site.url,title:site.title,links:site.links.length}));
+      } catch(error) {
+        res.statusCode=502; res.end(JSON.stringify({ok:false,connected:false,error:"site_not_reachable",message:error.message}));
+      }
+      return;
+    }
+
+    if (req.method === "GET" && req.url === "/site/catalog") {
+      try {
+        const site=await fetchSiteSnapshot();
+        const result=await runAI({
+          instructions:"Extraia o catálogo comercial real do site fornecido. Retorne SOMENTE JSON válido no formato {products:[{name,price,unit,category,description}]} . Não invente nenhum produto, preço, peso, categoria ou informação. Se um campo não estiver claramente presente, use null.",
+          input:JSON.stringify({url:site.url,title:site.title,text:site.text,links:site.links})
+        });
+        res.end(JSON.stringify({ok:true,site:{url:site.url,title:site.title},catalog:cleanJson(result.text),model:result.model}));
+      } catch(error) {
+        res.statusCode=502; res.end(JSON.stringify({error:"site_catalog_failed",message:error.message}));
+      }
+      return;
+    }
+
     if (req.method === "GET" && req.url === "/site/analyze") {
       try {
         const site=await fetchSiteSnapshot();
