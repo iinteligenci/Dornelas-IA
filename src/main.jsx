@@ -25,7 +25,7 @@ function App(){
 
  const refreshConnections=async()=>{
    try{
-     const [m,g]=await Promise.all([
+     const [m,g,s]=await Promise.all([
        fetch(API+"/meta/status",{credentials:"include"}).then(r=>r.json()),
        fetch(API+"/google/status",{credentials:"include"}).then(r=>r.json()),
        fetch(API+"/site/status").then(r=>r.json())
