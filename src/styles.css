@@ -4,3 +4,5 @@
 .mini{background:#10253d;border:1px solid #274461;color:#bcd2ec;border-radius:7px;padding:6px 9px;font-size:10px;cursor:pointer}
 .error{margin:12px 0;padding:11px 13px;border:1px solid #6b3941;background:#30161c;color:#ffb7c0;border-radius:9px;font-size:11px}
 .empty{min-height:180px}.empty p{color:#8094ad;font-size:12px;line-height:1.6}.statusTag{display:inline-block;margin-top:8px;font-size:10px;color:#f0c56b;background:#34290e;border:1px solid #5a4618;border-radius:6px;padding:6px 8px}
+
+.form{display:grid;gap:10px}.form label{font-size:11px;color:#7f94ad}.form select,.form input,.form textarea{width:100%;background:#07101f;color:#e9f1fc;border:1px solid #29415d;border-radius:8px;padding:10px;font:inherit}.form textarea{resize:vertical}.form .primary{width:max-content}.draft{margin-top:8px;border:1px solid #29415d;background:#091727;border-radius:10px;padding:16px}.draft h3{margin:0 0 8px}.draft p{color:#9aacc2;line-height:1.5;font-size:12px}.muted{color:#8195ad;font-size:11px;line-height:1.5}.empty{padding:20px;color:#7f94ad}
