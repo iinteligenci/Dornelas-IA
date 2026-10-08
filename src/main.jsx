@@ -18,6 +18,7 @@ function App(){
  const [googleConnected,setGoogleConnected]=useState(false);
  const [error,setError]=useState('');
  const [metaData,setMetaData]=useState(null);
+ const [aiAnalysis,setAiAnalysis]=useState('');
 
  const refreshConnections=async()=>{
    try{
@@ -51,7 +52,7 @@ function App(){
    <div className="sidefoot"><span className="dot"/> Sistema operacional</div>
   </aside>
   <main>
-   {active==='Visão geral'&&<Overview autonomy={autonomy} setAutonomy={setAutonomy} running={running} run={run} actions={actions} metaConnected={metaConnected} googleConnected={googleConnected} refreshConnections={refreshConnections} error={error}/>}
+   {active==='Visão geral'&&<Overview aiAnalysis={aiAnalysis} setAiAnalysis={setAiAnalysis} autonomy={autonomy} setAutonomy={setAutonomy} running={running} run={run} actions={actions} metaConnected={metaConnected} googleConnected={googleConnected} refreshConnections={refreshConnections} error={error}/>}
    {active==='Integrações'&&<Integrations metaConnected={metaConnected} googleConnected={googleConnected} refreshConnections={refreshConnections}/>}
    {active==='Campanhas'&&<Campaigns setActions={setActions}/>} 
    {active==='Conteúdo'&&<Content metaConnected={metaConnected} metaData={metaData} setMetaData={setMetaData} setActions={setActions} autonomy={autonomy}/>} 
@@ -62,13 +63,13 @@ function App(){
  </div>
 }
 
-function Overview({autonomy,setAutonomy,running,run,actions,metaConnected,googleConnected,refreshConnections,error}){
- return <><header><div><span className="eyebrow">AUTONOMIA COMERCIAL</span><h1>O objetivo é vender mais.</h1><p>A IA monitora o negócio, encontra oportunidades e executa ações autorizadas.</p></div><button className="primary" onClick={run} disabled={running}>{running?'Executando…':'Executar ciclo agora'}</button></header>
+function Overview({aiAnalysis,setAiAnalysis,autonomy,setAutonomy,running,run,actions,metaConnected,googleConnected,refreshConnections,error}){
+ return <><header><div><span className="eyebrow">AUTONOMIA COMERCIAL</span><h1>O objetivo é vender mais.</h1><p>A IA monitora o negócio, encontra oportunidades e executa ações autorizadas.</p></div><button className="primary" onClick={run} disabled={running}>{running?'Executando…':'Executar ciclo agora'}</button><button className="secondary" onClick={async()=>{try{const r=await fetch(API+"/agent/analyze",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({autonomyLevel:autonomy,context:{instagram:metaData}})});const d=await r.json();if(!r.ok)throw Error(d.message||d.error);setAiAnalysis(d.analysis);setActions(a=>[{time:new Date().toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"}),type:"IA",title:"Análise estratégica executada",detail:"GPT-5.6 Luna analisou o estado comercial.",status:"Concluído"},...a]);}catch(e){setAiAnalysis("Erro: "+e.message)}}}>Analisar com IA</button></header>
  <section className="hero"><div><span className="pill green">● Autonomia nível {autonomy}</span><h2>Agente trabalhando para aumentar as vendas</h2><p>O ciclo consulta dados reais das conexões disponíveis.</p></div><div className="autonomy"><label>Nível de autonomia</label><select value={autonomy} onChange={e=>setAutonomy(+e.target.value)}><option value="0">0 — Observar</option><option value="1">1 — Preparar</option><option value="2">2 — Executar ações autorizadas</option><option value="3">3 — Autonomia de vendas</option></select></div></section>
  {error&&<div className="error">⚠ {error}</div>}
  <div className="grid"><Metric title="Vendas hoje" value="R$ 0,00" note="Dados de vendas ainda não conectados"/><Metric title="Pedidos" value="0" note="Integração de pedidos pendente"/><Metric title="Campanhas ativas" value="0" note="Nenhuma publicação automática"/><Metric title="Oportunidades" value="2" note="Detectadas pelo agente"/></div>
  <section className="columns"><ActionCard actions={actions}/><Connections metaConnected={metaConnected} googleConnected={googleConnected} refreshConnections={refreshConnections}/></section>
- <section className="card objective"><span className="eyebrow">DIRETRIZ PRINCIPAL</span><h3>Aumentar vendas com segurança</h3><div className="rules"><span>✓ Priorizar receita e conversão</span><span>✓ Respeitar estoque e margem</span><span>✓ Não inventar ofertas</span><span>✓ Registrar ações</span></div></section></>
+ {aiAnalysis&&<section className="card ai-analysis"><span className="eyebrow">CÉREBRO OPERACIONAL · GPT-5.6 LUNA</span><h3>Análise estratégica</h3><pre>{aiAnalysis}</pre></section>}<section className="card objective"><span className="eyebrow">DIRETRIZ PRINCIPAL</span><h3>Aumentar vendas com segurança</h3><div className="rules"><span>✓ Priorizar receita e conversão</span><span>✓ Respeitar estoque e margem</span><span>✓ Não inventar ofertas</span><span>✓ Registrar ações</span></div></section></>
 }
 
 function ActionCard({actions}){return <div className="card"><div className="cardhead"><div><span className="eyebrow">CENTRAL DE AÇÕES</span><h3>O que a IA está fazendo</h3></div><span className="live">● LIVE</span></div>{actions.map((a,i)=><div className="action" key={i}><div className="time">{a.time}</div><div className="actionbody"><div className="actiontitle">{a.title}<span>{a.status}</span></div><p>{a.detail}</p></div></div>)}</div>}
@@ -80,9 +81,9 @@ function Integrations({metaConnected,googleConnected,refreshConnections}){return
 function Connection({name,status,connected=false}){const isMeta=name.includes("Instagram");const isGoogle=name.includes("Google");const connect=()=>{if(isMeta)window.location.href=API+"/auth/meta";else if(isGoogle)window.location.href=API+"/auth/google";};const active=isMeta||isGoogle;return <div className="connection"><div><b>{name}</b><small>{status}</small></div><button onClick={connect} disabled={!active}>{connected?"Reconectar":(active?"Conectar":"Em breve")}</button></div>}
 
 function Campaigns({setActions}){
- const [product,setProduct]=useState("Bacon"),[draft,setDraft]=useState(null),[busy,setBusy]=useState(false);
- const generate=async()=>{setBusy(true);try{const r=await fetch(API+"/agent/campaign",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({product})});const d=await r.json();if(!r.ok)throw Error(d.message||d.error);setDraft(d.draft);setActions(a=>[{time:new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}),title:"Campanha preparada",detail:product+" — rascunho comercial criado.",status:"Rascunho"},...a]);}catch(e){alert(e.message)}finally{setBusy(false)}};
- return <><header><div><span className="eyebrow">CAMPANHAS</span><h1>Criar campanha comercial.</h1><p>A IA prepara a campanha com objetivo de venda.</p></div><button className="primary" onClick={generate} disabled={busy}>{busy?"Gerando…":"Gerar campanha"}</button></header><section className="card form"><label>Produto</label><select value={product} onChange={e=>setProduct(e.target.value)}><option>Bacon</option><option>Kit Feijoada</option></select>{draft&&<div className="draft"><h3>{draft.headline}</h3><p>{draft.caption}</p><b>CTA: {draft.cta}</b></div>}</section></>
+ const [product,setProduct]=useState("Bacon"),[draft,setDraft]=useState(null),[busy,setBusy]=useState(false),[imageUrl,setImageUrl]=useState(""),[approved,setApproved]=useState(false);
+ const generate=async()=>{setBusy(true);try{const r=await fetch(API+"/agent/campaign",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({product,autonomyLevel:2})});const d=await r.json();if(!r.ok)throw Error(d.message||d.error);setDraft(d.draft);setActions(a=>[{time:new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}),title:"Campanha preparada",detail:product+" — rascunho comercial criado.",status:"Rascunho"},...a]);}catch(e){alert(e.message)}finally{setBusy(false)}};
+ return <><header><div><span className="eyebrow">CAMPANHAS</span><h1>Criar campanha comercial.</h1><p>A IA prepara a campanha com objetivo de venda.</p></div><button className="primary" onClick={generate} disabled={busy}>{busy?"Gerando…":"Gerar campanha"}</button></header><section className="card form"><label>Produto</label><select value={product} onChange={e=>setProduct(e.target.value)}><option>Bacon</option><option>Kit Feijoada</option></select>{draft&&<div className="draft"><h3>{draft.headline}</h3><p>{draft.caption}</p><b>CTA: {draft.cta}</b><label>URL pública da imagem</label><input value={imageUrl} onChange={e=>setImageUrl(e.target.value)} placeholder="https://.../imagem.jpg"/><button className="primary" onClick={async()=>{if(!imageUrl)return alert("Informe a imagem da campanha.");const r=await fetch(API+"/agent/campaign/approve",{method:"POST",headers:{"Content-Type":"application/json"},credentials:"include",body:JSON.stringify({approved:true,autonomyLevel:2,imageUrl,caption:draft.caption})});const d=await r.json();if(!r.ok)return alert(d.message||d.error);setApproved(true);setActions(a=>[{time:new Date().toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"}),type:"IA",title:"Campanha autorizada e publicada",detail:"O usuário autorizou e a Meta recebeu a publicação.",status:"Executado"},...a]);}}>Autorizar e publicar</button>{approved&&<span className="pill green">Publicada</span>}</div>}</section></>
 }
 
 function Content({metaConnected,metaData,setMetaData,setActions,autonomy}){
