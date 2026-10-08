@@ -1,6 +1,6 @@
 import { runSalesCycle } from "./agent/cycle.js";
 import { createOAuthState } from "./security/state.js";
-import { metaAuthorizeUrl, exchangeMetaCode, exchangeForLongLivedMetaToken, metaGraphGet } from "./integrations/meta.js";
+import { metaAuthorizeUrl, exchangeMetaCode, exchangeForLongLivedMetaToken, metaGraphGet, metaGraphPost } from "./integrations/meta.js";
 import { googleAuthorizeUrl, exchangeGoogleCode } from "./integrations/google.js";
 import crypto from "node:crypto";
 
@@ -157,6 +157,55 @@ const server = await import("node:http").then(({ createServer }) =>
         if (parsed) { try { googleConnection = JSON.parse(parsed); } catch {} }
       }
       res.end(JSON.stringify({ connected: Boolean(googleConnection?.refreshToken) }));
+      return;
+    }
+
+    if (req.method === "GET" && req.url === "/meta/data") {
+      if (!metaConnection?.accessToken) { res.statusCode=401; res.end(JSON.stringify({error:"meta_not_connected"})); return; }
+      try {
+        const accounts = await metaGraphGet({ path:"/me/accounts", accessToken:metaConnection.accessToken, params:{fields:"id,name,instagram_business_account"} });
+        const page=(accounts.data||[]).find(a=>a.instagram_business_account?.id);
+        if(!page) throw new Error("Nenhuma conta Instagram profissional vinculada a uma Página foi encontrada.");
+        const igId=page.instagram_business_account.id;
+        const [profile,media,insights]=await Promise.all([
+          metaGraphGet({path:"/"+igId,accessToken:metaConnection.accessToken,params:{fields:"id,username,name,followers_count,media_count,profile_picture_url"}}),
+          metaGraphGet({path:"/"+igId+"/media",accessToken:metaConnection.accessToken,params:{fields:"id,caption,like_count,comments_count,timestamp,permalink,media_type,media_url,thumbnail_url",limit:"25"}}),
+          metaGraphGet({path:"/"+igId+"/insights",accessToken:metaConnection.accessToken,params:{metric:"accounts_engaged,reach,total_interactions",period:"day"}}).catch(()=>({data:[]}))
+        ]);
+        res.end(JSON.stringify({page,profile,media:media.data||[],insights:insights.data||[]}));
+      } catch(error) { res.statusCode=502; res.end(JSON.stringify({error:"meta_data_failed",message:error.message})); }
+      return;
+    }
+
+    if (req.method === "POST" && req.url === "/meta/publish") {
+      if (!metaConnection?.accessToken) { res.statusCode=401; res.end(JSON.stringify({error:"meta_not_connected"})); return; }
+      let body=""; for await (const chunk of req) body+=chunk;
+      try {
+        const input=JSON.parse(body||"{}");
+        if(!input.imageUrl || !input.caption) throw new Error("imageUrl e caption são obrigatórios.");
+        const accounts=await metaGraphGet({path:"/me/accounts",accessToken:metaConnection.accessToken,params:{fields:"id,name,instagram_business_account"}});
+        const page=(accounts.data||[]).find(a=>a.instagram_business_account?.id);
+        if(!page) throw new Error("Conta Instagram profissional não encontrada.");
+        const igId=page.instagram_business_account.id;
+        const creation=await metaGraphPost({path:"/"+igId+"/media",accessToken:metaConnection.accessToken,body:{image_url:input.imageUrl,caption:input.caption}});
+        const published=await metaGraphPost({path:"/"+igId+"/media_publish",accessToken:metaConnection.accessToken,body:{creation_id:creation.id}});
+        res.end(JSON.stringify({ok:true,creation,published}));
+      } catch(error) { res.statusCode=502; res.end(JSON.stringify({error:"meta_publish_failed",message:error.message})); }
+      return;
+    }
+
+    if (req.method === "POST" && req.url === "/agent/campaign") {
+      let body=""; for await (const chunk of req) body+=chunk;
+      try {
+        const input=JSON.parse(body||"{}");
+        const product=input.product||"Bacon";
+        const drafts={
+          Bacon:{headline:"Bacon Dornelas: sabor defumado de verdade.",caption:"Bacon artesanal, defumado lentamente e pronto para transformar o seu churrasco. Quer pedir? Acesse o catálogo e faça seu pedido.",cta:"Pedir agora"},
+          "Kit Feijoada":{headline:"Kit Feijoada Dornelas.",caption:"Tudo pensado para uma feijoada caprichada. Consulte o catálogo, escolha seu kit e faça seu pedido.",cta:"Ver kit e pedir"}
+        };
+        const draft=drafts[product]||{headline:product+" Dornelas",caption:"Conheça nossos produtos e faça seu pedido pelo catálogo.",cta:"Ver catálogo"};
+        res.end(JSON.stringify({ok:true,objective:"increase_sales",product,draft,approvalRequired:true}));
+      } catch(error) { res.statusCode=400; res.end(JSON.stringify({error:"invalid_request"})); }
       return;
     }
 
