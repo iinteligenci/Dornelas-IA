@@ -330,6 +330,28 @@ const server = await import("node:http").then(({ createServer }) =>
       return;
     }
 
+    if (req.method === "POST" && req.url === "/agent/chat") {
+      try {
+        const input=JSON.parse(await readBody(req)||"{}");
+        const message=String(input.message||"").trim();
+        if(!message){res.statusCode=400;res.end(JSON.stringify({error:"message_required"}));return;}
+        const site=await fetchSiteSnapshot().catch(()=>({url:process.env.SITE_URL||"",title:"Defumados Dornelas",text:"",links:[]}));
+        const catalog=input.catalog||null;
+        const instructions=`Você é a IA comercial da Defumados Dornelas. Seu objetivo é ajudar a aumentar vendas.
+Responda em português do Brasil, de forma prática e pronta para uso.
+Quando o usuário pedir conteúdo para Instagram, entregue uma versão pronta para copiar e colar, com:
+1) texto da publicação;
+2) CTA;
+3) hashtags somente se fizerem sentido.
+Não invente preços, produtos, promoções, estoque ou fatos. Use o catálogo/site fornecido quando disponível.
+Se o pedido for sobre estratégia, dê ações concretas e priorizadas.
+Não diga que publicou no Instagram: você está apenas preparando o conteúdo para o usuário copiar e publicar manualmente.`;
+        const result=await runAI({instructions,input:JSON.stringify({business:"Defumados Dornelas",message,site:{url:site.url,title:site.title,text:site.text?.slice(0,9000)},catalog,history:Array.isArray(input.history)?input.history.slice(-10):[]})});
+        res.end(JSON.stringify({ok:true,ai:true,model:result.model,response:result.text,responseId:result.responseId}));
+      } catch(error) { res.statusCode=502; res.end(JSON.stringify({error:"ai_chat_failed",message:error.message})); }
+      return;
+    }
+
     if (req.method === "POST" && req.url === "/agent/analyze") {
       try {
         const input=JSON.parse(await readBody(req)||"{}");
