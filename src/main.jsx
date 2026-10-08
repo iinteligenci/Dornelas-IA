@@ -66,12 +66,13 @@ function App(){
  return <div className="app">
   <aside>
    <div className="brand"><div className="logo">D</div><div><strong>Dornelas IA</strong><small>Agente comercial</small></div></div>
-   <nav>{['Visão geral','Campanhas','Conteúdo','Integrações','Permissões','Resultados','Auditoria'].map(item=><button key={item} className={active===item?'active':''} onClick={()=>setActive(item)}>{item}</button>)}</nav>
+   <nav>{['Visão geral','Estúdio IA','Campanhas','Conteúdo','Integrações','Permissões','Resultados','Auditoria'].map(item=><button key={item} className={active===item?'active':''} onClick={()=>setActive(item)}>{item}</button>)}</nav>
    <div className="sidefoot"><span className="dot"/> Sistema operacional</div>
   </aside>
   <main>
    {active==='Visão geral'&&<Overview aiAnalysis={aiAnalysis} setAiAnalysis={setAiAnalysis} autonomy={autonomy} setAutonomy={setAutonomy} running={running} run={run} actions={actions} metaConnected={metaConnected} googleConnected={googleConnected} refreshConnections={refreshConnections} error={error} metaData={metaData} loadMetaData={loadMetaData} loadingMeta={loadingMeta}/>}
    {active==='Integrações'&&<Integrations metaConnected={metaConnected} googleConnected={googleConnected} refreshConnections={refreshConnections}/>}
+   {active==='Estúdio IA'&&<Studio metaData={metaData} setMetaData={setMetaData} metaConnected={metaConnected} autonomy={autonomy} setActions={setActions}/>}
    {active==='Campanhas'&&<Campaigns setActions={setActions} autonomy={autonomy} metaData={metaData}/>} 
    {active==='Conteúdo'&&<Content metaConnected={metaConnected} metaData={metaData} setMetaData={setMetaData} setActions={setActions} autonomy={autonomy}/>} 
    {active==='Permissões'&&<Permissions autonomy={autonomy} setAutonomy={setAutonomy}/>} 
@@ -108,6 +109,35 @@ function Connections({metaConnected,googleConnected,refreshConnections}){return 
 function Integrations({metaConnected,googleConnected,refreshConnections}){return <><header><div><span className="eyebrow">INTEGRAÇÕES</span><h1>Conectar e manter conectado.</h1><p>As conexões autorizadas ficam disponíveis ao agente sem armazenar senhas.</p></div><button className="primary" onClick={refreshConnections}>Verificar conexões</button></header><section className="card"><Connection name="Instagram / Meta" status={metaConnected?"Conectado":"OAuth necessário"} connected={metaConnected}/><Connection name="Google Business Profile" status={googleConnected?"Conectado":"OAuth necessário"} connected={googleConnected}/><Connection name="Site Dornelas" status="Ainda não implementado"/><Connection name="Pedidos / vendas" status="Ainda não implementado"/></section><div className="notice">Meta já está conectada. A persistência usa cookie HttpOnly seguro; a conexão depende da validade do token autorizado.</div></>}
 
 function Connection({name,status,connected=false}){const isMeta=name.includes("Instagram");const isGoogle=name.includes("Google");const connect=()=>{if(isMeta)window.location.href=API+"/auth/meta";else if(isGoogle)window.location.href=API+"/auth/google";};const active=isMeta||isGoogle;return <div className="connection"><div><b>{name}</b><small>{status}</small></div><button onClick={connect} disabled={!active}>{connected?"Reconectar":(active?"Conectar":"Em breve")}</button></div>}
+
+
+function Studio({metaData,setMetaData,metaConnected,autonomy,setActions}){
+ const [plan,setPlan]=useState(null),[research,setResearch]=useState(null),[site,setSite]=useState(null),[reuse,setReuse]=useState(null),[busy,setBusy]=useState(false),[generated,setGenerated]=useState({}),[approved,setApproved]=useState({}),[schedule,setSchedule]=useState({});
+ const loadInstagram=async()=>{if(metaData)return metaData;const r=await fetch(API+"/meta/data",{credentials:"include"});const d=await r.json();if(!r.ok)throw Error(d.message||d.error);setMetaData(d);return d;};
+ const build=async()=>{
+   setBusy(true);
+   try{
+     const ig=await loadInstagram().catch(()=>null);
+     const r=await fetch(API+"/agent/content-plan",{method:"POST",headers:{"Content-Type":"application/json"},credentials:"include",body:JSON.stringify({instagram:ig})});
+     const d=await r.json();if(!r.ok)throw Error(d.message||d.error);setPlan(Array.isArray(d.plan)?d.plan:(d.plan?.items||[]));setResearch(d.research);setSite(d.site);
+     setActions(a=>[{time:new Date().toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"}),type:"IA",title:"Plano de crescimento criado",detail:"A IA analisou site, Instagram e pesquisa atual.",status:"Pronto"},...a]);
+   }catch(e){alert(e.message)}finally{setBusy(false)}
+ };
+ const researchNow=async()=>{setBusy(true);try{const r=await fetch(API+"/agent/research",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({focus:"curiosidades e assuntos que possam gerar conteúdo e vendas para Defumados Dornelas"})});const d=await r.json();if(!r.ok)throw Error(d.message||d.error);setResearch(d.research)}catch(e){alert(e.message)}finally{setBusy(false)}};
+ const analyzeSite=async()=>{setBusy(true);try{const r=await fetch(API+"/site/analyze");const d=await r.json();if(!r.ok)throw Error(d.message||d.error);setSite(d.result)}catch(e){alert(e.message)}finally{setBusy(false)}};
+ const reuseNow=async()=>{setBusy(true);try{const ig=await loadInstagram();const r=await fetch(API+"/agent/reuse",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({media:ig.media||[]})});const d=await r.json();if(!r.ok)throw Error(d.message||d.error);setReuse(d.reuse)}catch(e){alert(e.message)}finally{setBusy(false)}};
+ const gen=async(item,i)=>{try{const r=await fetch(API+"/agent/image",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({prompt:item.topic+" | Headline: "+item.headline+" | Formato: "+item.format+" | Conteúdo para Instagram da Defumados Dornelas"})});const d=await r.json();if(!r.ok)throw Error(d.message||d.error);setGenerated(g=>({...g,[i]:d.publicUrl||d.dataUrl}));}catch(e){alert(e.message)}};
+ const approve=async(item,i)=>{setApproved(a=>({...a,[i]:!a[i]}));};
+ const publish=async(item,i)=>{const imageUrl=generated[i];if(!imageUrl)return alert("Gere a arte primeiro.");if(!approved[i])return alert("Confirme o conteúdo antes de publicar.");if(autonomy<2)return alert("Defina autonomia 2 ou superior.");const r=await fetch(API+"/meta/publish",{method:"POST",headers:{"Content-Type":"application/json"},credentials:"include",body:JSON.stringify({imageUrl,caption:item.caption,autonomyLevel:autonomy})});const d=await r.json();if(!r.ok)return alert(d.message||d.error);alert("Publicado no Instagram.");setActions(a=>[{time:new Date().toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"}),type:"IA",title:"Conteúdo publicado",detail:item.headline,status:"Executado"},...a]);};
+ const schedulePost=async(item,i)=>{const imageUrl=generated[i];if(!imageUrl)return alert("Gere a arte primeiro.");if(!approved[i])return alert("Confirme o conteúdo antes de agendar.");const scheduledFor=schedule[i];if(!scheduledFor)return alert("Escolha data e hora.");const r=await fetch(API+"/agent/schedule",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({item:{...item,imageUrl,approved:true,scheduledFor:new Date(scheduledFor).toISOString()}})});const d=await r.json();if(!r.ok)throw Error(d.message||d.error);alert("Postagem agendada.");};
+ return <><header><div><span className="eyebrow">ESTÚDIO IA</span><h1>A IA cria. Você confirma.</h1><p>Ela pesquisa, analisa o site e Instagram, monta táticas, prepara conteúdo e entrega o pacote pronto para aprovação.</p></div><button className="primary" onClick={build} disabled={busy}>{busy?"Trabalhando…":"Criar plano de 7 dias"}</button></header>
+ <section className="card form"><div className="rules"><span>Pesquisa atual</span><span>Análise do site</span><span>Instagram real</span><span>Curiosidades</span><span>Reaproveitamento</span><span>Artes IA</span></div><div className="studio-actions"><button className="secondary" onClick={researchNow} disabled={busy}>Pesquisar assuntos</button><button className="secondary" onClick={analyzeSite} disabled={busy}>Analisar site</button><button className="secondary" onClick={reuseNow} disabled={busy||!metaConnected}>Reaproveitar Instagram</button></div></section>
+ {site&&<section className="card"><span className="eyebrow">SITE</span><h3>Diagnóstico de conversão</h3><pre>{JSON.stringify(site,null,2)}</pre></section>}
+ {research&&<section className="card"><span className="eyebrow">PESQUISA</span><h3>Assuntos e curiosidades</h3><pre>{JSON.stringify(research,null,2)}</pre></section>}
+ {reuse&&<section className="card"><span className="eyebrow">REAPROVEITAMENTO</span><h3>Cortes e novas versões</h3><pre>{JSON.stringify(reuse,null,2)}</pre></section>}
+ {plan?.map((item,i)=><section className="card" key={i}><span className="eyebrow">{item.format||"CONTEÚDO"} · {item.assetType||"ORIGINAL_IMAGE"}</span><h3>{item.headline||item.topic}</h3><p>{item.caption}</p><p><b>Objetivo:</b> {item.objective} · <b>CTA:</b> {item.cta}</p><p className="muted">{item.reason}</p><div className="studio-actions"><button className={approved[i]?"secondary":"primary"} onClick={()=>approve(item,i)}>{approved[i]?"✓ Conteúdo confirmado":"Confirmar conteúdo"}</button><button className="secondary" onClick={()=>gen(item,i)}>Gerar arte</button>{generated[i]&&<button className="secondary" onClick={()=>publish(item,i)} disabled={!approved[i]||autonomy<2}>Publicar agora</button>}</div>{generated[i]&&<><img className="studio-image" src={generated[i]} alt="Arte gerada pela IA"/><div className="studio-actions"><input type="datetime-local" value={schedule[i]||""} onChange={e=>setSchedule(s=>({...s,[i]:e.target.value}))}/><button className="secondary" onClick={()=>schedulePost(item,i)} disabled={!approved[i]}>Agendar postagem</button></div></>}</section>)}
+ </>;
+}
 
 function Campaigns({setActions,autonomy,metaData}){
  const [product,setProduct]=useState("Bacon"),[draft,setDraft]=useState(null),[busy,setBusy]=useState(false),[imageUrl,setImageUrl]=useState(""),[approved,setApproved]=useState(false);
