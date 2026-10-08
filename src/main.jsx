@@ -34,11 +34,12 @@ function App(){
  };
 
  const connect=()=>window.open(API+"/auth/meta","_blank","noopener,noreferrer");
+ const instagramReady=Boolean(meta?.targetAvailable);
 
  return <div className="app">
    <header className="topbar">
      <div className="brand"><div className="logo">D</div><div><b>Dornelas IA</b><small>Agente de vendas</small></div></div>
-     <div className="top-actions"><span className={"status "+(health?.aiConfigured?"ok":"bad")}>IA {health?.aiConfigured?"OK":"OFF"}</span><span className={"status "+(meta?.connected?"ok":"warn")}>Instagram {meta?.connected?"conectado":"não conectado"}</span><button className="iconbtn" onClick={refresh}>↻</button></div>
+     <div className="top-actions"><span className={"status "+(health?.aiConfigured?"ok":"bad")}>IA {health?.aiConfigured?"OK":"OFF"}</span><span className={"status "+(instagramReady?"ok":"warn")}>Instagram {instagramReady?"pronto":meta?.connected?"Meta conectada":"não conectado"}</span><button className="iconbtn" onClick={refresh}>↻</button></div>
    </header>
 
    <main>
@@ -69,18 +70,18 @@ function Central({meta,site,health,audit,loading,connect,runAudit,repair,message
   {message&&<div className="notice">{message}</div>}
   <div className="grid">
    <Metric title="IA" value={health?.aiConfigured?"Pronta":"Erro"} note={health?.aiConfigured?"modelo configurado":"ver configuração do servidor"}/>
-   <Metric title="Instagram" value={meta?.connected?"Conectado":"Pendente"} note={profile?("@"+(profile.username||"conta")):"dados ainda não lidos"}/>
+   <Metric title="Instagram" value={instagramReady?"Pronto":meta?.connected?"Meta conectada":"Pendente"} note={profile?("@"+(profile.username||"conta")):(meta?.targetError||"dados ainda não lidos")}/>
    <Metric title="Site" value={site?.connected?"Conectado":"Erro"} note={site?.connected?"catálogo disponível para análise":"não acessível"}/>
    <Metric title="Publicação" value="Automática" note="após autorização e conexão Meta"/>
   </div>
   <section className="card">
    <div className="cardhead"><div><span className="eyebrow">PRÓXIMA MELHOR AÇÃO</span><h2>Deixe a IA decidir o próximo passo.</h2></div><span className="pill green">foco em vendas</span></div>
-   <div className="next-grid"><Action title="1 · Ler Instagram" text={meta?.connected?"Analisar publicações, engajamento e padrões vencedores.":"Conectar a conta Meta para liberar dados reais."} button={meta?.connected?"Ver conteúdo":"Conectar"} onClick={meta?.connected?()=>setTab("conteudo"):connect}/>
+   <div className="next-grid"><Action title="1 · Ler Instagram" text={instagramReady?"Analisar publicações, engajamento e padrões vencedores.":meta?.connected?(meta?.targetError||"Meta autorizada, mas o Instagram profissional ainda não foi localizado."):"Conectar a conta Meta para liberar dados reais."} button={instagramReady?"Ver conteúdo":"Conectar / corrigir"} onClick={instagramReady?()=>setTab("conteudo"):connect}/>
    <Action title="2 · Encontrar assunto em alta" text="Usar pesquisa pública + dados próprios para escolher temas com potencial comercial." button="Gerar agora" onClick={()=>setTab("chat")}/>
    <Action title="3 · Criar e publicar" text="Gerar legenda/arte/Reels, testar variações e agendar ou publicar quando autorizado." button="Abrir IA" onClick={()=>setTab("chat")}/></div>
   </section>
   {audit&&<section className="card"><div className="cardhead"><div><span className="eyebrow">AUTOAVALIAÇÃO</span><h2>Diagnóstico do sistema</h2></div><span className={"pill "+(audit.ok?"green":"yellow")}>{audit.ok?"OK":"atenção"}</span></div><pre>{JSON.stringify(audit,null,2)}</pre><button className="primary" onClick={repair} disabled={loading}>Aplicar correções seguras</button></section>}
-  <section className="card"><div className="cardhead"><div><span className="eyebrow">PRINCÍPIO</span><h2>Autonomia com freio.</h2></div></div><p className="muted">A IA pode analisar, criar e preparar tudo sozinha. Publicações externas só acontecem quando a permissão de autonomia estiver liberada e a integração oficial estiver funcionando.</p></section>
+  <section className="card"><div className="cardhead"><div><span className="eyebrow">CONEXÃO INSTAGRAM</span><h2>{instagramReady?"Instagram pronto para a IA.":"A Meta foi autorizada, mas o Instagram ainda não está acessível."}</h2></div></div><p className="muted">{instagramReady?"Agora a IA pode ler dados e preparar/publicar conteúdo conforme as permissões.":meta?.connected?"O diagnóstico encontrou o token da Meta, mas nenhum Instagram profissional ligado à Página autorizada. No fluxo atual, é necessário vincular o Instagram profissional à Página do Facebook e depois reconectar.":"Conecte pela Meta para liberar os dados oficiais. Não coloque sua senha do Instagram no aplicativo."}</p>{!instagramReady&&<button className="secondary" onClick={connect}>{meta?.connected?"Reconectar Meta":"Conectar Instagram"}</button>}</section>
  </div>
 }
 
@@ -130,7 +131,7 @@ function Agenda(){
  return <div className="page"><header className="section-head"><div><span className="eyebrow">PUBLICAÇÃO</span><h1>Agenda automática.</h1><p>A IA prepara e o servidor publica os itens aprovados no horário.</p></div><button className="primary" onClick={load} disabled={busy}>Atualizar</button></header><section className="card">{!data?<p className="muted">Carregando…</p>:data.length===0?<div className="empty">Nenhuma postagem agendada ainda.</div>:data.map(x=><div className="action" key={x.id}><div className="time">{new Date(x.scheduledFor).toLocaleString("pt-BR")}</div><div><b>{x.headline||x.caption?.slice(0,60)||"Postagem"}</b><p className="muted">{x.status}</p></div></div>)}</section></div>
 }
 
-function Config({meta,connect,refresh}){return <div className="page"><header className="section-head"><div><span className="eyebrow">CONEXÕES</span><h1>Conectar uma vez.</h1><p>Usamos as credenciais que já existem no servidor. Não coloque senhas aqui.</p></div></header><section className="card"><Connection name="Instagram / Meta" connected={meta?.connected} onClick={connect}/><div className="notice">Se a Meta informar que não encontrou Instagram profissional, a conta precisa estar corretamente vinculada à estrutura comercial da Meta. A IA não deve contornar isso com senha ou automação de tela.</div><button className="secondary" onClick={refresh}>Verificar novamente</button></section></div>}
+function Config({meta,connect,refresh}){return <div className="page"><header className="section-head"><div><span className="eyebrow">CONEXÕES</span><h1>Conectar uma vez.</h1><p>Usamos as credenciais que já existem no servidor. Não coloque senhas aqui.</p></div></header><section className="card"><Connection name="Instagram / Meta" connected={meta?.targetAvailable} onClick={connect}/><div className="notice">{meta?.targetAvailable?"Instagram profissional encontrado e pronto para a IA.":meta?.connected?("Meta autorizada, mas o alvo do Instagram não foi encontrado. "+(meta.targetError||"Reconecte após vincular o Instagram profissional à Página correta.")):"Ainda não há autorização da Meta."}</div>{meta?.connected&&!meta?.targetAvailable&&<ol className="muted"><li>Abra a Página do Facebook que administra a Dornelas.</li><li>Em Configurações → Contas vinculadas, conecte o Instagram profissional da Dornelas.</li><li>Depois toque em “Reconectar” aqui e autorize novamente.</li></ol>}<button className="secondary" onClick={refresh}>Verificar novamente</button></section></div>}
 function Connection({name,connected,onClick}){return <div className="connection"><div><b>{name}</b><small>{connected?"Conectado ao agente":"Ainda não conectado"}</small></div><button onClick={onClick}>{connected?"Reconectar":"Conectar"}</button></div>}
 
 createRoot(document.getElementById("root")).render(<App/>);
