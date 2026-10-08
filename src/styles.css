@@ -12,3 +12,22 @@
 .studio-actions input{min-width:220px}
 .studio-image{display:block;max-width:520px;width:100%;margin-top:16px;border-radius:14px;border:1px solid rgba(255,255,255,.08)}
 .ai-analysis pre,.card>pre{white-space:pre-wrap;word-break:break-word;max-height:520px;overflow:auto}
+
+.mobile-menu,.mobile-close{display:none}
+@media(max-width:900px){
+ .mobile-menu{display:flex;position:fixed;top:12px;left:12px;z-index:1200;align-items:center;gap:7px;background:#10253d;color:#e9f1fc;border:1px solid #294461;border-radius:9px;padding:9px 11px;font-weight:700;box-shadow:0 8px 24px #0006}
+ .mobile-menu span{font-size:11px}
+ aside.mobile-open{display:flex;position:fixed;z-index:1300;left:0;top:0;bottom:0;width:280px;max-width:82vw;padding:25px 18px;box-shadow:18px 0 45px #0009;transform:translateX(0)}
+ aside{transform:translateX(-105%);transition:transform .2s ease}
+ .mobile-close{display:block;position:absolute;right:8px;top:4px;background:none;border:0;color:#8fa4bd;font-size:28px;line-height:1;cursor:pointer}
+ .mobile-backdrop{position:fixed;inset:0;z-index:1250;background:#0008}
+ main{padding:70px 14px 40px}
+ header{gap:12px}
+ header .primary,header .secondary{width:100%;margin-top:12px}
+ .grid{grid-template-columns:1fr 1fr}
+ .columns{grid-template-columns:1fr}
+ .hero{display:block}
+ .autonomy{min-width:0;margin-top:20px}
+ .studio-actions{flex-direction:column;align-items:stretch}
+ .studio-actions input,.studio-actions button{width:100%;min-width:0}
+}
