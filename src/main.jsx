@@ -11,6 +11,7 @@ const API="https://dornelas-ia.onrender.com";
 
 function App(){
  const [active,setActive]=useState('Visão geral');
+ const [mobileMenu,setMobileMenu]=useState(false);
  const [autonomy,setAutonomy]=useState(2);
  const [running,setRunning]=useState(false);
  const [actions,setActions]=useState(initialActions);
@@ -67,11 +68,13 @@ function App(){
  };
 
  return <div className="app">
-  <aside>
-   <div className="brand"><div className="logo">D</div><div><strong>Dornelas IA</strong><small>Agente comercial</small></div></div>
-   <nav>{['Visão geral','Estúdio IA','Campanhas','Conteúdo','Integrações','Permissões','Resultados','Auditoria'].map(item=><button key={item} className={active===item?'active':''} onClick={()=>setActive(item)}>{item}</button>)}</nav>
+  <aside className={mobileMenu?"mobile-open":""}>
+   <div className="brand"><button className="mobile-close" onClick={()=>setMobileMenu(false)}>×</button><div className="logo">D</div><div><strong>Dornelas IA</strong><small>Agente comercial</small></div></div>
+   <nav>{['Visão geral','Estúdio IA','Campanhas','Conteúdo','Integrações','Permissões','Resultados','Auditoria'].map(item=><button key={item} className={active===item?'active':''} onClick={()=>{setActive(item);setMobileMenu(false)}}>{item}</button>)}</nav>
    <div className="sidefoot"><span className="dot"/> Sistema operacional</div>
   </aside>
+  <button className="mobile-menu" onClick={()=>setMobileMenu(true)} aria-label="Abrir menu">☰ <span>Menu</span></button>
+  {mobileMenu&&<div className="mobile-backdrop" onClick={()=>setMobileMenu(false)}/>} 
   <main>
    {active==='Visão geral'&&<Overview aiAnalysis={aiAnalysis} setAiAnalysis={setAiAnalysis} autonomy={autonomy} setAutonomy={setAutonomy} running={running} run={run} actions={actions} metaConnected={metaConnected} googleConnected={googleConnected} siteConnected={siteConnected} refreshConnections={refreshConnections} error={error} metaData={metaData} loadMetaData={loadMetaData} loadingMeta={loadingMeta}/>}
    {active==='Integrações'&&<Integrations metaConnected={metaConnected} googleConnected={googleConnected} siteConnected={siteConnected} refreshConnections={refreshConnections}/>}
@@ -115,7 +118,10 @@ function Connection({name,status,connected=false}){const isMeta=name.includes("I
 
 
 function Studio({metaData,setMetaData,metaConnected,autonomy,setActions}){
- const [plan,setPlan]=useState(null),[research,setResearch]=useState(null),[site,setSite]=useState(null),[reuse,setReuse]=useState(null),[catalog,setCatalog]=useState(null),[busy,setBusy]=useState(false),[generated,setGenerated]=useState({}),[approved,setApproved]=useState({}),[schedule,setSchedule]=useState({});\n const [chat,setChat]=useState([{role:"assistant",text:"Sou a IA comercial da Dornelas. Me peça uma legenda, roteiro, oferta, anúncio ou ideia de conteúdo. Eu preparo tudo pronto para você copiar e colar no Instagram."}]),[chatInput,setChatInput]=useState(""),[chatBusy,setChatBusy]=useState(false),[copied,setCopied]=useState("");\n const sendChat=async(text=chatInput)=>{const message=String(text||"").trim();if(!message||chatBusy)return;setChatInput("");setChat(c=>[...c,{role:"user",text:message}]);setChatBusy(true);try{const r=await fetch(API+"/agent/chat",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({message,history:chat.slice(-10),catalog})});const d=await r.json();if(!r.ok)throw Error(d.message||d.error);setChat(c=>[...c,{role:"assistant",text:d.response||"Não consegui gerar a resposta."}]);}catch(e){setChat(c=>[...c,{role:"assistant",text:"Erro: "+e.message}]);}finally{setChatBusy(false)}};\n const copyChat=async(text)=>{try{await navigator.clipboard.writeText(text);setCopied(text);setTimeout(()=>setCopied(""),1500)}catch{alert("Não foi possível copiar automaticamente.")}};
+ const [plan,setPlan]=useState(null),[research,setResearch]=useState(null),[site,setSite]=useState(null),[reuse,setReuse]=useState(null),[catalog,setCatalog]=useState(null),[busy,setBusy]=useState(false),[generated,setGenerated]=useState({}),[approved,setApproved]=useState({}),[schedule,setSchedule]=useState({});
+ const [chat,setChat]=useState([{role:"assistant",text:"Sou a IA comercial da Dornelas. Me peça uma legenda, roteiro, oferta, anúncio ou ideia de conteúdo. Eu preparo tudo pronto para você copiar e colar no Instagram."}]),[chatInput,setChatInput]=useState(""),[chatBusy,setChatBusy]=useState(false),[copied,setCopied]=useState("");
+ const sendChat=async(text=chatInput)=>{const message=String(text||"").trim();if(!message||chatBusy)return;setChatInput("");setChat(c=>[...c,{role:"user",text:message}]);setChatBusy(true);try{const r=await fetch(API+"/agent/chat",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({message,history:chat.slice(-10),catalog})});const d=await r.json();if(!r.ok)throw Error(d.message||d.error);setChat(c=>[...c,{role:"assistant",text:d.response||"Não consegui gerar a resposta."}]);}catch(e){setChat(c=>[...c,{role:"assistant",text:"Erro: "+e.message}]);}finally{setChatBusy(false)}};
+ const copyChat=async(text)=>{try{await navigator.clipboard.writeText(text);setCopied(text);setTimeout(()=>setCopied(""),1500)}catch{alert("Não foi possível copiar automaticamente.")}};
  const loadInstagram=async()=>{if(metaData)return metaData;const r=await fetch(API+"/meta/data",{credentials:"include"});const d=await r.json();if(!r.ok)throw Error(d.message||d.error);setMetaData(d);return d;};
  const build=async()=>{
    setBusy(true);
