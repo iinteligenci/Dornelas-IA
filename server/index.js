@@ -740,6 +740,33 @@ Não invente estoque, avaliações, resultados ou promoções.`,
       return;
     }
 
+    if (req.method === "POST" && req.url === "/agent/site-improvements") {
+      try{
+        const site=await fetchSiteSnapshot();
+        const catalog=await fetchSiteCatalog().catch(()=>({products:[]}));
+        const trends=await getPublicTrends().catch(()=>({trends:[]}));
+        const knowledge=await githubJsonGet("generated/ai/knowledge-base.json").catch(()=>({exists:false,content:null}));
+        const prompt={
+          objective:"Aumentar vendas no site dos Defumados Dornelas sem quebrar o checkout atual.",
+          preservation:["Não remover catálogo existente","Não inventar produtos, preços, estoque, avaliações ou depoimentos","Preservar finalização do pedido","Preservar regras de entrega conhecidas","Não alterar o site automaticamente nesta etapa"],
+          site:{url:site.url,title:site.title,links:site.links,text:site.text},
+          catalog,
+          trends:trends.trends,
+          knowledge:knowledge.content?.aiAnalysis||knowledge.content?.derived||null
+        };
+        const ai=await runAI({instructions:`Analise o site como um CRO, UX designer e engenheiro frontend focado em conversão. Crie uma proposta prática para aumentar vendas. Priorize problemas que possam ser corrigidos no HTML/CSS/JS existente. Retorne JSON válido:
+{score:0-100,summary:string,quickWins:[{priority,title,problem,change,expectedImpact,acceptanceCriteria}],ux:[...],conversion:[...],mobile:[...],seo:[...],performance:[...],checkout:[...],content:[...],implementationOrder:[string],doNotChange:[string],implementationPrompt:string}
+Cada quickWin deve ser executável e verificável. Não invente dados. Se não houver evidência, marque como hipótese. A proposta será usada pelo usuário e pelo assistente para implementar alterações no repositório do site.`,input:JSON.stringify(prompt).slice(0,60000)});
+        const proposal=cleanJson(ai.text);
+        const record={createdAt:new Date().toISOString(),siteUrl:site.url,proposal};
+        const path="generated/ai/site-improvement-proposal.json";
+        const current=await githubJsonGet(path);
+        await githubJsonPut(path,record,current.sha||undefined);
+        res.end(JSON.stringify({ok:true,path,proposal}));
+      }catch(error){res.statusCode=502;res.end(JSON.stringify({error:"site_improvements_failed",message:error.message}));}
+      return;
+    }
+
     if (req.method === "POST" && req.url === "/agent/knowledge/test") {
       const startedAt=new Date().toISOString();
       const results={};
