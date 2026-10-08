@@ -1,7 +1,7 @@
 import { runSalesCycle } from "./agent/cycle.js";
 import { createOAuthState } from "./security/state.js";
 import { metaAuthorizeUrl, exchangeMetaCode, exchangeForLongLivedMetaToken, metaGraphGet, metaGraphPost, instagramAuthorizeUrl, exchangeInstagramCode, exchangeForLongLivedInstagramToken, instagramGraphGet, instagramGraphPost } from "./integrations/meta.js";
-import { googleAuthorizeUrl, exchangeGoogleCode, googleApiGet } from "./integrations/google.js";
+import { googleAuthorizeUrl, exchangeGoogleCode, googleApiGet, refreshGoogleAccessToken } from "./integrations/google.js";
 import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import { spawn } from "node:child_process";
@@ -9,6 +9,7 @@ import ffmpegPath from "ffmpeg-static";
 import { runAI, generateImage } from "./integrations/ai.js";
 import { publishPublicAsset, githubJsonGet, githubJsonPut } from "./integrations/assets.js";
 import { SYSTEM_PROMPT, CAMPAIGN_PROMPT, CONTENT_PLAN_PROMPT, RESEARCH_PROMPT, SITE_ANALYSIS_PROMPT, REUSE_PROMPT } from "./agent/ai-prompts.js";
+import { normalizeKnowledge, knowledgeInstructions } from "./data/knowledge.js";
 
 function cookieToken(secret, value) {
   const key = crypto.createHash("sha256").update(String(secret || "")).digest();
@@ -113,6 +114,49 @@ async function loadPersistedMetaConnection(){
   }catch(error){ console.error("Meta persisted connection load failed:",error.message); return false; }
 }
 
+async function loadPersistedGoogleConnection(){
+  if(googleConnection?.refreshToken||googleConnection?.accessToken) return true;
+  if(!process.env.GITHUB_TOKEN||!process.env.GOOGLE_CLIENT_SECRET) return false;
+  try{
+    const saved=await githubJsonGet("generated/ai/google-connection.json");
+    if(!saved.exists) return false;
+    const encrypted=saved.content?.encrypted;
+    const parsed=encrypted?decryptCookie(process.env.GOOGLE_CLIENT_SECRET,encrypted):null;
+    if(!parsed) return false;
+    googleConnection=JSON.parse(parsed);
+    return Boolean(googleConnection?.refreshToken||googleConnection?.accessToken);
+  }catch(error){console.error("Google persisted connection load failed:",error.message);return false;}
+}
+async function persistGoogleConnection(){
+  if(!process.env.GITHUB_TOKEN||!process.env.GOOGLE_CLIENT_SECRET||!googleConnection) return;
+  const encrypted=cookieToken(process.env.GOOGLE_CLIENT_SECRET,JSON.stringify(googleConnection));
+  try{
+    const current=await githubJsonGet("generated/ai/google-connection.json");
+    await githubJsonPut("generated/ai/google-connection.json",{encrypted,updatedAt:new Date().toISOString()},current.sha||undefined);
+  }catch(error){console.error("Google persisted connection save failed:",error.message);}
+}
+async function ensureGoogleAccess(){
+  await loadPersistedGoogleConnection();
+  if(!googleConnection?.accessToken&&!googleConnection?.refreshToken) throw new Error("Google não está conectado.");
+  if(googleConnection.refreshToken && (!googleConnection.accessToken||!googleConnection.expiresAt||Date.now()>googleConnection.expiresAt-60000)){
+    const token=await refreshGoogleAccessToken({clientId:process.env.GOOGLE_CLIENT_ID,clientSecret:process.env.GOOGLE_CLIENT_SECRET,refreshToken:googleConnection.refreshToken});
+    googleConnection={...googleConnection,accessToken:token.access_token,expiresAt:token.expires_in?Date.now()+Number(token.expires_in)*1000:googleConnection.expiresAt};
+    await persistGoogleConnection();
+  }
+  return googleConnection.accessToken;
+}
+async function getGoogleBusinessData(){
+  const accessToken=await ensureGoogleAccess();
+  const accounts=await googleApiGet({url:"https://mybusinessaccountmanagement.googleapis.com/v1/accounts",accessToken});
+  const account=(accounts.accounts||[])[0];
+  let locations=[];
+  if(account?.name){
+    const data=await googleApiGet({url:"https://mybusinessbusinessinformation.googleapis.com/v1/"+account.name+"/locations",accessToken,params:{readMask:"name,title,storefrontAddress,websiteUri,phoneNumbers,regularHours"}});
+    locations=data.locations||[];
+  }
+  return {account,locations};
+}
+
 async function persistMetaConnection(){
   if(!process.env.GITHUB_TOKEN || !metaConnection?.accessToken) return;
   const encrypted=cookieToken(process.env.META_CLIENT_SECRET,JSON.stringify({accessToken:metaConnection.accessToken,expiresAt:metaConnection.expiresAt||null,authType:metaConnection.authType||"facebook_login",instagramUserId:metaConnection.instagramUserId||null}));
@@ -191,6 +235,18 @@ async function publishInstagramMedia({mediaType,imageUrl,videoUrl,caption}){
     ? await instagramGraphPost({path:"/me/media_publish",accessToken:metaConnection.accessToken,body:{creation_id:creation.id}})
     : await metaGraphPost({path:"/"+target.igId+"/media_publish",accessToken:metaConnection.accessToken,body:{creation_id:creation.id}});
   return {creation,published,authType:target.authType};
+}
+
+async function getPublicTrends(){
+  const rr=await fetch("https://trends.google.com/trending/rss?geo=BR&hl=pt-BR",{headers:{"User-Agent":"Mozilla/5.0 Dornelas-IA"}});
+  if(!rr.ok) throw new Error("Google Trends HTTP "+rr.status);
+  const xml=await rr.text();
+  const itemBlocks=xml.split("<item>").slice(1,16);
+  const trends=itemBlocks.map(block=>{
+    const pick=(tag)=>{const m=block.match(new RegExp("<"+tag+"[^>]*>([\\s\\S]*?)</"+tag+">","i"));return (m?.[1]||"").replace(/<!\\[CDATA\\[|\\]\\]>/g,"").replace(/<[^>]+>/g," ").trim();};
+    return {title:pick("title"),traffic:pick("ht:approx_traffic"),description:pick("description")};
+  }).filter(x=>x.title);
+  return {ok:true,source:"Google Trends público",trends};
 }
 
 const server = await import("node:http").then(({ createServer }) =>
@@ -302,7 +358,7 @@ const server = await import("node:http").then(({ createServer }) =>
       if (!code) { res.statusCode = 400; res.end(JSON.stringify({ error: "missing_code" })); return; }
       try {
         const token = await exchangeGoogleCode({ clientId: process.env.GOOGLE_CLIENT_ID, clientSecret: process.env.GOOGLE_CLIENT_SECRET, redirectUri: process.env.GOOGLE_REDIRECT_URI, code });
-        googleConnection = { accessToken: token?.access_token || null, refreshToken: token?.refresh_token || null, expiresAt: token?.expires_in ? Date.now()+Number(token.expires_in)*1000 : null, connected: Boolean(token?.access_token || token?.refresh_token) };
+        googleConnection = { accessToken: token?.access_token || null, refreshToken: token?.refresh_token || null, expiresAt: token?.expires_in ? Date.now()+Number(token.expires_in)*1000 : null, connected: Boolean(token?.access_token || token?.refresh_token) };\n        await persistGoogleConnection();
         if (googleConnection.refreshToken) {
           const googleCookie = cookieToken(process.env.GOOGLE_CLIENT_SECRET, JSON.stringify(googleConnection));
           res.setHeader("Set-Cookie", "dornelas_google=" + encodeURIComponent(googleCookie) + "; Path=/; Max-Age=31536000; HttpOnly; Secure; SameSite=None");
@@ -356,7 +412,7 @@ const server = await import("node:http").then(({ createServer }) =>
     }
 
     if (req.method === "GET" && req.url === "/google/status") {
-      const saved = readCookie(req, "dornelas_google");
+      await loadPersistedGoogleConnection();\n      const saved = readCookie(req, "dornelas_google");
       if (saved && !googleConnection) {
         const parsed = decryptCookie(process.env.GOOGLE_CLIENT_SECRET, saved);
         if (parsed) { try { googleConnection = JSON.parse(parsed); } catch {} }
@@ -366,17 +422,8 @@ const server = await import("node:http").then(({ createServer }) =>
     }
 
     if (req.method === "GET" && req.url === "/google/data") {
-      if (!googleConnection?.accessToken) { res.statusCode=401; res.end(JSON.stringify({error:"google_not_connected"})); return; }
-      try {
-        const accounts = await googleApiGet({url:"https://mybusinessaccountmanagement.googleapis.com/v1/accounts",accessToken:googleConnection.accessToken});
-        const account=(accounts.accounts||[])[0];
-        let locations=[];
-        if(account?.name){
-          const data=await googleApiGet({url:"https://mybusinessbusinessinformation.googleapis.com/v1/"+account.name+"/locations",accessToken:googleConnection.accessToken,params:{readMask:"name,title,storefrontAddress,websiteUri"}});
-          locations=data.locations||[];
-        }
-        res.end(JSON.stringify({account,locations}));
-      } catch(error) { res.statusCode=502; res.end(JSON.stringify({error:"google_data_failed",message:error.message})); }
+      try { res.end(JSON.stringify(await getGoogleBusinessData())); }
+      catch(error) { res.statusCode=502; res.end(JSON.stringify({error:"google_data_failed",message:error.message})); }
       return;
     }
 
@@ -669,21 +716,67 @@ Não invente estoque, avaliações, resultados ou promoções.`,
 
     if (req.method === "GET" && req.url === "/agent/trends") {
       try {
-        const rr=await fetch("https://trends.google.com/trending/rss?geo=BR&hl=pt-BR",{headers:{"User-Agent":"Mozilla/5.0 Dornelas-IA"}});
-        if(!rr.ok) throw new Error("Google Trends HTTP "+rr.status);
-        const xml=await rr.text();
-        const itemBlocks=xml.split("<item>").slice(1,16);
-        const trends=itemBlocks.map(block=>{
-          const pick=(tag)=>{const m=block.match(new RegExp("<"+tag+"[^>]*>([\\s\\S]*?)</"+tag+">","i"));return (m?.[1]||"").replace(/<!\\[CDATA\\[|\\]\\]>/g,"").replace(/<[^>]+>/g," ").trim();};
-          return {title:pick("title"),traffic:pick("ht:approx_traffic"),description:pick("description")};
-        }).filter(x=>x.title);
+        const base=await getPublicTrends();
         let ideas={items:[]};
         try{
-          const ai=await runAI({instructions:"Transforme tendências públicas em oportunidades de conteúdo para uma empresa brasileira de defumados. Escolha apenas ângulos naturais e comerciais. Retorne JSON {items:[{trend,angle,hook,format,reason}]} com no máximo 7 itens.",input:JSON.stringify({trends,business:"Defumados Dornelas"})});
+          const ai=await runAI({instructions:"Transforme tendências públicas em oportunidades de conteúdo para uma empresa brasileira de defumados. Escolha apenas ângulos naturais e comerciais. Retorne JSON {items:[{trend,angle,hook,format,reason}]} com no máximo 7 itens.",input:JSON.stringify({trends:base.trends,business:"Defumados Dornelas"})});
           ideas=cleanJson(ai.text);
         }catch{}
-        res.end(JSON.stringify({ok:true,source:"Google Trends público",trends,ideas}));
+        res.end(JSON.stringify({...base,ideas}));
       }catch(error){res.statusCode=502;res.end(JSON.stringify({error:"trends_failed",message:error.message}));}
+      return;
+    }
+
+    if (req.method === "GET" && req.url === "/agent/config-audit") {
+      const configured=[
+        ["META_CLIENT_ID","Meta OAuth"],["META_CLIENT_SECRET","Meta OAuth secret"],["META_CONFIG_ID","Meta Login configuration"],
+        ["META_REDIRECT_URI","Meta callback"],["GOOGLE_CLIENT_ID","Google OAuth"],["GOOGLE_CLIENT_SECRET","Google OAuth secret"],["GOOGLE_REDIRECT_URI","Google callback"],
+        ["OPENAI_API_KEY","IA"],["AI_MODEL","modelo IA"],["AI_IMAGE_MODEL","geração de imagem"],["GITHUB_TOKEN","armazenamento de dados/ativos"],
+        ["CONTENT_ASSET_REPO","repositório de dados/ativos"],["CONTENT_ASSET_BRANCH","branch de dados"],["SITE_URL","site/catalogo"],["SCHEDULE_FILE","agenda"],
+        ["META_PERSIST_FILE","persistência Meta"],["SCHEDULER_SECRET","scheduler"],["DORNELAS_SCHEDULER_SECRET","scheduler alternativo"],
+        ["INSTAGRAM_CLIENT_ID","Instagram Login"],["INSTAGRAM_CLIENT_SECRET","Instagram Login secret"],["INSTAGRAM_REDIRECT_URI","Instagram callback"]
+      ].map(([key,role])=>({key,role,configured:Boolean(process.env[key])}));
+      res.end(JSON.stringify({ok:true,configured}));
+      return;
+    }
+
+    if (req.method === "POST" && req.url === "/agent/knowledge/collect") {
+      try{
+        const errors=[];
+        const safe=async(name,fn)=>{try{return await fn()}catch(error){errors.push({source:name,error:error.message});return null;}};
+        const site=await safe("site",fetchSiteSnapshot);
+        const catalog=await safe("catalog",fetchSiteCatalog);
+        let instagram=null;
+        await safe("instagram",async()=>{
+          const target=await getInstagramTarget();
+          instagram=target.authType==="instagram_login"
+            ? await Promise.all([
+              instagramGraphGet({path:"/me",accessToken:metaConnection.accessToken,params:{fields:"id,username,name,followers_count,media_count,profile_picture_url"}}),
+              instagramGraphGet({path:"/me/media",accessToken:metaConnection.accessToken,params:{fields:"id,caption,like_count,comments_count,timestamp,permalink,media_type,media_url,thumbnail_url",limit:"50"}}),
+              instagramGraphGet({path:"/"+target.igId+"/insights",accessToken:metaConnection.accessToken,params:{metric:"accounts_engaged,reach,total_interactions",period:"day"}}).catch(()=>({data:[]})) 
+            ]).then(([profile,media,insights])=>({profile,media:media.data||[],insights:insights.data||[],source:target.source||target.authType}))
+            : await Promise.all([
+              metaGraphGet({path:"/"+target.igId,accessToken:metaConnection.accessToken,params:{fields:"id,username,name,followers_count,media_count,profile_picture_url"}}),
+              metaGraphGet({path:"/"+target.igId+"/media",accessToken:metaConnection.accessToken,params:{fields:"id,caption,like_count,comments_count,timestamp,permalink,media_type,media_url,thumbnail_url",limit:"50"}}),
+              metaGraphGet({path:"/"+target.igId+"/insights",accessToken:metaConnection.accessToken,params:{metric:"accounts_engaged,reach,total_interactions",period:"day"}}).catch(()=>({data:[]})) 
+            ]).then(([profile,media,insights])=>({profile,media:media.data||[],insights:insights.data||[],source:target.source||target.authType}));
+        });
+        const google=await safe("google_business",async()=>await getGoogleBusinessData());
+        const trends=await safe("public_trends",getPublicTrends);
+        const schedule=await safe("schedule",async()=>{const s=await githubJsonGet(schedulerPath());return Array.isArray(s.content)?s.content:[]})||[];
+        const config=await safe("config",async()=>{const x={};for(const k of ["META_CLIENT_ID","META_CLIENT_SECRET","META_CONFIG_ID","META_REDIRECT_URI","GOOGLE_CLIENT_ID","GOOGLE_CLIENT_SECRET","GOOGLE_REDIRECT_URI","OPENAI_API_KEY","AI_MODEL","AI_IMAGE_MODEL","GITHUB_TOKEN","CONTENT_ASSET_REPO","CONTENT_ASSET_BRANCH","SITE_URL","SCHEDULE_FILE","META_PERSIST_FILE","SCHEDULER_SECRET","DORNELAS_SCHEDULER_SECRET","INSTAGRAM_CLIENT_ID","INSTAGRAM_CLIENT_SECRET","INSTAGRAM_REDIRECT_URI"])x[k]=Boolean(process.env[k]);return x;});
+        const knowledge=normalizeKnowledge({site,catalog,instagram,google,trends,schedule,config});
+        let aiAnalysis=null;
+        try{const ai=await runAI({instructions:knowledgeInstructions(),input:JSON.stringify(knowledge).slice(0,45000)});aiAnalysis=cleanJson(ai.text);}catch(error){errors.push({source:"knowledge_ai",error:error.message});}
+        knowledge.aiAnalysis=aiAnalysis;
+        knowledge.collection={errors,collectedAt:new Date().toISOString()};
+        const path="generated/ai/knowledge-base.json";
+        const current=await githubJsonGet(path);
+        await githubJsonPut(path,knowledge,current.sha||undefined);
+        const snapshotPath="generated/ai/snapshots/"+new Date().toISOString().replace(/[:.]/g,"-")+".json";
+        await githubJsonPut(snapshotPath,knowledge);
+        res.end(JSON.stringify({ok:true,path,snapshotPath,errors,sources:knowledge.sources,aiAnalysis}));
+      }catch(error){res.statusCode=502;res.end(JSON.stringify({error:"knowledge_collection_failed",message:error.message}));}
       return;
     }
 
