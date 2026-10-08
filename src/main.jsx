@@ -259,6 +259,11 @@ function Agenda({openChat}){
 function Config({meta,connect,refresh}){
  const ready=Boolean(meta?.targetAvailable);
  const [busy,setBusy]=useState(false),[report,setReport]=useState(null),[error,setError]=useState("");
+ const siteImprove=async()=>{
+  if(busy)return;setBusy(true);setError("");
+  try{const d=await api("/agent/site-improvements",{method:"POST",timeout:120000,body:{}});setReport({type:"site",data:d});}
+  catch(e){setError(e.message)}finally{setBusy(false)}
+ };
  const collect=async()=>{
   if(busy)return;setBusy(true);setError("");
   try{const d=await api("/agent/knowledge/collect",{method:"POST",timeout:120000,body:{}});setReport({type:"collect",data:d});}
@@ -273,9 +278,11 @@ function Config({meta,connect,refresh}){
   <section className="card"><Connection name="Instagram / Meta" connected={ready} onClick={connect}/>
    <div className="notice">{ready?"Instagram profissional encontrado e pronto para a IA.":meta?.connected?("Meta autorizada, mas o alvo do Instagram não foi encontrado. "+(meta.targetError||"O sistema já tentou os caminhos disponíveis.")):"Ainda não há autorização da Meta."}</div>
    {meta?.connected&&!ready&&<ol className="muted"><li>Abra a Página do Facebook que administra a Dornelas.</li><li>Em Configurações → Contas vinculadas, conecte o Instagram profissional.</li><li>Depois toque em “Reconectar” e autorize novamente.</li></ol>}
-   <div className="hero-actions"><button className="secondary" onClick={refresh}>Verificar conexões</button><button className="primary" onClick={collect} disabled={busy}>{busy?"Coletando…":"Construir banco da IA"}</button><button className="secondary" onClick={test} disabled={busy}>{busy?"Testando…":"Testar conexões 10×"}</button></div>
+   <div className="hero-actions"><button className="secondary" onClick={refresh}>Verificar conexões</button><button className="primary" onClick={collect} disabled={busy}>{busy?"Coletando…":"Construir banco da IA"}</button><button className="secondary" onClick={test} disabled={busy}>{busy?"Testando…":"Testar conexões 10×"}</button><button className="secondary" onClick={siteImprove} disabled={busy}>{busy?"Analisando…":"Propor melhorias no site"}</button></div>
    {error&&<div className="notice">{error}</div>}
-   {report&&<section className="card"><span className="eyebrow">{report.type==="test"?"TESTE DE CONEXÕES":"BASE DE CONHECIMENTO"}</span><pre>{JSON.stringify(report.data,null,2)}</pre></section>}
+   {report&&<section className="card"><span className="eyebrow">{report.type==="test"?"TESTE DE CONEXÕES":report.type==="site"?"MELHORIAS DO SITE":"BASE DE CONHECIMENTO"}</span>
+   {report.type==="site"&&report.data?.proposal?<div className="site-proposal"><h2>Plano de melhoria orientado a vendas</h2><p>{report.data.proposal.summary}</p><div className="proposal-grid">{(report.data.proposal.quickWins||[]).map((x,i)=><article className="metric" key={i}><b>{x.title}</b><small>{x.priority} · {x.problem}</small><p>{x.change}</p><span>{x.expectedImpact}</span></article>)}</div><h3>Ordem de implementação</h3><ol>{(report.data.proposal.implementationOrder||[]).map((x,i)=><li key={i}>{x}</li>)}</ol><button className="secondary" onClick={()=>copyText(report.data.proposal.implementationPrompt||"")}>Copiar plano para implementação</button></div>:<pre>{JSON.stringify(report.data,null,2)}</pre>}
+  </section>}
   </section>
  </div>
 }
