@@ -60,8 +60,8 @@ function App(){
  const setTab=tabName=>{setTabState(tabName);sessionStorage.setItem("dornelas-tab",tabName);window.scrollTo({top:0,behavior:"smooth"})};
  const openChat=prompt=>{setChatPrompt(prompt||"");setTab("chat")};
 
- const refresh=async()=>{
-  if(loading)return;
+ const refresh=async(force=false)=>{
+  if(loading&&!force)return;
   setLoading(true);setMessage("");
   const results=await Promise.allSettled([api("/health"),api("/meta/status"),api("/site/status")]);
   const [h,m,s]=results;
@@ -85,7 +85,7 @@ function App(){
   try{
    const d=await api("/agent/self-fix",{method:"POST",timeout:60000,body:{}});
    setAudit(d.audit);setMessage(d.message||"Correções seguras aplicadas.");
-   await refresh();
+   await refresh(true);
   }catch(e){setMessage("Falha na autocorreção: "+e.message)}
   finally{setLoading(false)}
  };
