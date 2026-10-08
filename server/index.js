@@ -3,6 +3,9 @@ import { createOAuthState } from "./security/state.js";
 import { metaAuthorizeUrl, exchangeMetaCode, exchangeForLongLivedMetaToken, metaGraphGet, metaGraphPost } from "./integrations/meta.js";
 import { googleAuthorizeUrl, exchangeGoogleCode, googleApiGet } from "./integrations/google.js";
 import crypto from "node:crypto";
+import fs from "node:fs/promises";
+import { spawn } from "node:child_process";
+import ffmpegPath from "ffmpeg-static";
 import { runAI, generateImage } from "./integrations/ai.js";
 import { publishPublicAsset, githubJsonGet, githubJsonPut } from "./integrations/assets.js";
 import { SYSTEM_PROMPT, CAMPAIGN_PROMPT, CONTENT_PLAN_PROMPT, RESEARCH_PROMPT, SITE_ANALYSIS_PROMPT, REUSE_PROMPT } from "./agent/ai-prompts.js";
@@ -67,6 +70,17 @@ async function fetchSiteSnapshot() {
 }
 
 function schedulerPath(){ return process.env.SCHEDULE_FILE || "generated/ai/schedule.json"; }
+
+function runFfmpeg(args){
+  return new Promise((resolve,reject)=>{
+    const p=spawn(ffmpegPath,args,{stdio:["ignore","ignore","pipe"]});
+    let stderr="";
+    p.stderr.on("data",d=>stderr+=d.toString());
+    p.on("error",reject);
+    p.on("close",code=>code===0?resolve():reject(new Error(stderr.slice(-2000)||"ffmpeg failed")));
+  });
+}
+
 function metaPersistPath(){ return process.env.META_PERSIST_FILE || "generated/ai/meta-connection.json"; }
 
 async function loadPersistedMetaConnection(){
@@ -252,12 +266,15 @@ const server = await import("node:http").then(({ createServer }) =>
       try {
         const input=JSON.parse(body||"{}");
         if(Number(input.autonomyLevel || 0) < 2) throw new Error("Publicação externa exige autonomia nível 2 ou superior.");
-        if(!input.imageUrl || !input.caption) throw new Error("imageUrl e caption são obrigatórios.");
+        if(!input.caption) throw new Error("caption é obrigatório.");
+        const mediaType=String(input.mediaType||"IMAGE").toUpperCase();
+        if(mediaType==="IMAGE"&&!input.imageUrl) throw new Error("imageUrl é obrigatório para IMAGE.");
+        if(mediaType==="REELS"&&!input.videoUrl) throw new Error("videoUrl é obrigatório para REELS.");
         const accounts=await metaGraphGet({path:"/me/accounts",accessToken:metaConnection.accessToken,params:{fields:"id,name,instagram_business_account"}});
         const page=(accounts.data||[]).find(a=>a.instagram_business_account?.id);
         if(!page) throw new Error("Conta Instagram profissional não encontrada.");
         const igId=page.instagram_business_account.id;
-        const creation=await metaGraphPost({path:"/"+igId+"/media",accessToken:metaConnection.accessToken,body:{image_url:input.imageUrl,caption:input.caption}});
+        const creation=await metaGraphPost({path:"/"+igId+"/media",accessToken:metaConnection.accessToken,body:mediaType==="REELS"?{media_type:"REELS",video_url:input.videoUrl,caption:input.caption}:{image_url:input.imageUrl,caption:input.caption}});
         const published=await metaGraphPost({path:"/"+igId+"/media_publish",accessToken:metaConnection.accessToken,body:{creation_id:creation.id}});
         res.end(JSON.stringify({ok:true,creation,published}));
       } catch(error) { res.statusCode=502; res.end(JSON.stringify({error:"meta_publish_failed",message:error.message})); }
@@ -323,6 +340,26 @@ const server = await import("node:http").then(({ createServer }) =>
       return;
     }
 
+    if (req.method === "POST" && req.url === "/agent/clip") {
+      try {
+        const input=JSON.parse(await readBody(req)||"{}");
+        if(!input.sourceUrl) throw new Error("sourceUrl é obrigatório.");
+        const start=Math.max(0,Number(input.startSeconds||0));
+        const duration=Math.min(60,Math.max(3,Number(input.durationSeconds||15)));
+        const sourcePath="/tmp/dornelas-source-"+Date.now()+".mp4";
+        const outputPath="/tmp/dornelas-clip-"+Date.now()+".mp4";
+        const source=await fetch(input.sourceUrl);
+        if(!source.ok) throw new Error("Não foi possível baixar o vídeo original.");
+        await fs.writeFile(sourcePath,Buffer.from(await source.arrayBuffer()));
+        await runFfmpeg(["-y","-ss",String(start),"-i",sourcePath,"-t",String(duration),"-vf","scale=1080:-2","-c:v","libx264","-preset","veryfast","-c:a","aac","-movflags","+faststart",outputPath]);
+        const base64=(await fs.readFile(outputPath)).toString("base64");
+        const asset=await publishPublicAsset({base64,filename:"dornelas-corte-"+Date.now()+".mp4",mimeType:"video/mp4"});
+        await fs.rm(sourcePath,{force:true}); await fs.rm(outputPath,{force:true});
+        res.end(JSON.stringify({ok:true,...asset,startSeconds:start,durationSeconds:duration}));
+      } catch(error) { res.statusCode=502; res.end(JSON.stringify({error:"clip_failed",message:error.message})); }
+      return;
+    }
+
     if (req.method === "GET" && req.url === "/agent/schedule") {
       try {
         const saved=await githubJsonGet(schedulerPath());
@@ -341,6 +378,7 @@ const server = await import("node:http").then(({ createServer }) =>
         const current=await githubJsonGet(schedulerPath());
         const list=Array.isArray(current.content)?current.content:[];
         const item={...input.item,id:input.item.id||crypto.randomUUID(),status:"scheduled",createdAt:new Date().toISOString()};
+        if(!item.mediaType) item.mediaType=item.videoUrl?"REELS":"IMAGE";
         list.push(item);
         await githubJsonPut(schedulerPath(),list,current.sha);
         res.end(JSON.stringify({ok:true,item}));
@@ -364,7 +402,7 @@ const server = await import("node:http").then(({ createServer }) =>
             const page=(accounts.data||[]).find(a=>a.instagram_business_account?.id);
             if(!page) throw new Error("Conta Instagram profissional não encontrada.");
             const igId=page.instagram_business_account.id;
-            const creation=await metaGraphPost({path:"/"+igId+"/media",accessToken:metaConnection.accessToken,body:{image_url:item.imageUrl,caption:item.caption}});
+            const creation=await metaGraphPost({path:"/"+igId+"/media",accessToken:metaConnection.accessToken,body:item.mediaType==="REELS"?{media_type:"REELS",video_url:item.videoUrl,caption:item.caption}:{image_url:item.imageUrl,caption:item.caption}});
             const published=await metaGraphPost({path:"/"+igId+"/media_publish",accessToken:metaConnection.accessToken,body:{creation_id:creation.id}});
             item.status="published"; item.publishedAt=new Date().toISOString(); item.publishedId=published.id||null;
             results.push({id:item.id,status:"published"});
