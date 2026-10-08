@@ -99,6 +99,130 @@ async function loadPersistedMetaConnection(){
   }catch(error){ console.error("Meta persisted connection load failed:",error.message); return false; }
 }
 
+
+
+async function getInstagramTarget(){
+  await loadPersistedMetaConnection();
+  if(!metaConnection?.accessToken) throw new Error("Instagram / Meta não está conectado.");
+  if(metaConnection.authType === "instagram_login"){
+    return {authType:"instagram_login",igId:metaConnection.instagramUserId||null,page:null};
+  }
+  const accounts=await metaGraphGet({path:"/me/accounts",accessToken:metaConnection.accessToken,params:{fields:"id,name,instagram_business_account"}});
+  const page=(accounts.data||[]).find(a=>a.instagram_business_account?.id);
+  if(!page) throw new Error("Nenhuma conta Instagram profissional vinculada a uma Página foi encontrada. Use o botão Conectar Instagram.");
+  return {authType:"facebook_login",igId:page.instagram_business_account.id,page};
+}
+
+async function publishInstagramMedia({mediaType,imageUrl,videoUrl,caption}){
+  const target=await getInstagramTarget();
+  const creation=target.authType==="instagram_login"
+    ? await instagramGraphPost({path:"/me/media",accessToken:metaConnection.accessToken,body:mediaType==="REELS"?{media_type:"REELS",video_url:videoUrl,caption}:{image_url:imageUrl,caption}})
+    : await metaGraphPost({path:"/"+target.igId+"/media",accessToken:metaConnection.accessToken,body:mediaType==="REELS"?{media_type:"REELS",video_url:videoUrl,caption}:{image_url:imageUrl,caption}});
+  const published=target.authType==="instagram_login"
+    ? await instagramGraphPost({path:"/me/media_publish",accessToken:metaConnection.accessToken,body:{creation_id:creation.id}})
+    : await metaGraphPost({path:"/"+target.igId+"/media_publish",accessToken:metaConnection.accessToken,body:{creation_id:creation.id}});
+  return {creation,published,authType:target.authType};
+}mport { runSalesCycle } from "./agent/cycle.js";
+import { createOAuthState } from "./security/state.js";
+import { metaAuthorizeUrl, exchangeMetaCode, exchangeForLongLivedMetaToken, metaGraphGet, metaGraphPost, instagramAuthorizeUrl, exchangeInstagramCode, exchangeForLongLivedInstagramToken, instagramGraphGet, instagramGraphPost } from "./integrations/meta.js";
+import { googleAuthorizeUrl, exchangeGoogleCode, googleApiGet } from "./integrations/google.js";
+import crypto from "node:crypto";
+import fs from "node:fs/promises";
+import { spawn } from "node:child_process";
+import ffmpegPath from "ffmpeg-static";
+import { runAI, generateImage } from "./integrations/ai.js";
+import { publishPublicAsset, githubJsonGet, githubJsonPut } from "./integrations/assets.js";
+import { SYSTEM_PROMPT, CAMPAIGN_PROMPT, CONTENT_PLAN_PROMPT, RESEARCH_PROMPT, SITE_ANALYSIS_PROMPT, REUSE_PROMPT } from "./agent/ai-prompts.js";
+
+function cookieToken(secret, value) {
+  const key = crypto.createHash("sha256").update(String(secret || "")).digest();
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv("aes-256-gcm", key, iv);
+  const encrypted = Buffer.concat([cipher.update(String(value), "utf8"), cipher.final()]);
+  return Buffer.concat([iv, cipher.getAuthTag(), encrypted]).toString("base64url");
+}
+
+function readCookie(req, name) {
+  const raw = req.headers.cookie || "";
+  const part = raw.split(";").map(v => v.trim()).find(v => v.startsWith(name + "="));
+  return part ? decodeURIComponent(part.slice(name.length + 1)) : null;
+}
+
+function decryptCookie(secret, value) {
+  try {
+    const key = crypto.createHash("sha256").update(String(secret || "")).digest();
+    const data = Buffer.from(value, "base64url");
+    const decipher = crypto.createDecipheriv("aes-256-gcm", key, data.subarray(0, 12));
+    decipher.setAuthTag(data.subarray(12, 28));
+    return decipher.update(data.subarray(28), undefined, "utf8") + decipher.final("utf8");
+  } catch { return null; }
+}
+
+const port = Number(process.env.PORT || 8787);
+
+const oauthStates = new Set();
+let metaConnection = process.env.META_ACCESS_TOKEN ? { accessToken: process.env.META_ACCESS_TOKEN, expiresAt: null, connected: true, authType: process.env.META_AUTH_TYPE || "facebook_login" } : null;
+let googleConnection = null;
+
+const demoContext = {
+  autonomyLevel: 2,
+  products: [
+    { name: "Bacon", stock: 10, margin: 0.4, minMargin: 0.3 },
+    { name: "Kit Feijoada", stock: 8, margin: 0.45, minMargin: 0.3 }
+  ],
+  permissions: {
+    campaignDraft: { allowed: true, approvalRequired: false }
+  }
+};
+
+function readBody(req) { return new Promise(async (resolve) => { let body=""; for await (const chunk of req) body+=chunk; resolve(body); }); }
+
+function cleanJson(text) {
+  const raw=String(text||"").trim().replaceAll("\`\`\`json","").replaceAll("\`\`\`","").trim();
+  try { return JSON.parse(raw); } catch { return { raw }; }
+}
+
+async function fetchSiteSnapshot() {
+  const url=process.env.SITE_URL || "https://iinteligenci.github.io/dorn/";
+  const response=await fetch(url,{headers:{"User-Agent":"Dornelas-IA/1.0"}});
+  if(!response.ok) throw new Error("Site retornou HTTP "+response.status);
+  const html=await response.text();
+  const title=(html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1]||"").replace(/<[^>]+>/g,"").trim();
+  const links=[...html.matchAll(/<a[^>]+href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)].slice(0,60).map(m=>({href:m[1],text:m[2].replace(/<[^>]+>/g," ").replace(/\s+/g," ").trim()}));
+  const text=html.replace(/<script[\s\S]*?<\/script>/gi," ").replace(/<style[\s\S]*?<\/style>/gi," ").replace(/<[^>]+>/g," ").replace(/\s+/g," ").trim().slice(0,18000);
+  return {url,title,links,text};
+}
+
+function schedulerPath(){ return process.env.SCHEDULE_FILE || "generated/ai/schedule.json"; }
+
+function runFfmpeg(args){
+  return new Promise((resolve,reject)=>{
+    const p=spawn(ffmpegPath,args,{stdio:["ignore","ignore","pipe"]});
+    let stderr="";
+    p.stderr.on("data",d=>stderr+=d.toString());
+    p.on("error",reject);
+    p.on("close",code=>code===0?resolve():reject(new Error(stderr.slice(-2000)||"ffmpeg failed")));
+  });
+}
+
+function metaPersistPath(){ return process.env.META_PERSIST_FILE || "generated/ai/meta-connection.json"; }
+
+async function loadPersistedMetaConnection(){
+  if(metaConnection?.accessToken) return true;
+  if(!process.env.GITHUB_TOKEN || !process.env.META_CLIENT_SECRET) return false;
+  try{
+    const saved=await githubJsonGet(metaPersistPath());
+    if(!saved.exists) return false;
+    const encrypted=saved.content?.encrypted;
+    const parsed=encrypted?decryptCookie(process.env.META_CLIENT_SECRET,encrypted):null;
+    if(!parsed) return false;
+    const data=JSON.parse(parsed);
+    if(!data.accessToken) return false;
+    metaConnection={accessToken:data.accessToken,expiresAt:data.expiresAt||null,connected:true,authType:data.authType||"facebook_login"};
+    return true;
+  }catch(error){ console.error("Meta persisted connection load failed:",error.message); return false; }
+}
+
 async function persistMetaConnection(){
   if(!process.env.GITHUB_TOKEN || !metaConnection?.accessToken) return;
   const encrypted=cookieToken(process.env.META_CLIENT_SECRET,JSON.stringify({accessToken:metaConnection.accessToken,expiresAt:metaConnection.expiresAt||null,authType:metaConnection.authType||"facebook_login"}));
@@ -479,12 +603,7 @@ const server = await import("node:http").then(({ createServer }) =>
         for(const item of due) {
           try {
             if(!metaConnection?.accessToken) throw new Error("Meta não conectada.");
-            const accounts=await metaGraphGet({path:"/me/accounts",accessToken:metaConnection.accessToken,params:{fields:"id,name,instagram_business_account"}});
-            const page=(accounts.data||[]).find(a=>a.instagram_business_account?.id);
-            if(!page) throw new Error("Conta Instagram profissional não encontrada.");
-            const igId=page.instagram_business_account.id;
-            const creation=await metaGraphPost({path:"/"+igId+"/media",accessToken:metaConnection.accessToken,body:item.mediaType==="REELS"?{media_type:"REELS",video_url:item.videoUrl,caption:item.caption}:{image_url:item.imageUrl,caption:item.caption}});
-            const published=await metaGraphPost({path:"/"+igId+"/media_publish",accessToken:metaConnection.accessToken,body:{creation_id:creation.id}});
+            const {published}=await publishInstagramMedia({mediaType:item.mediaType==="REELS"?"REELS":"IMAGE",imageUrl:item.imageUrl,videoUrl:item.videoUrl,caption:item.caption});
             item.status="published"; item.publishedAt=new Date().toISOString(); item.publishedId=published.id||null;
             results.push({id:item.id,status:"published"});
           } catch(error) { item.status="failed"; item.error=error.message; results.push({id:item.id,status:"failed",error:error.message}); }
@@ -515,41 +634,25 @@ const server = await import("node:http").then(({ createServer }) =>
         if(Number(input.autonomyLevel||0)<2) throw new Error("Autonomia nível 2 ou superior é necessária.");
         if(!input.imageUrl||!input.caption) throw new Error("A campanha autorizada precisa de imagem pública e legenda.");
         if(!metaConnection?.accessToken) throw new Error("Instagram / Meta não está conectado.");
-        const accounts=await metaGraphGet({path:"/me/accounts",accessToken:metaConnection.accessToken,params:{fields:"id,name,instagram_business_account"}});
-        const page=(accounts.data||[]).find(a=>a.instagram_business_account?.id);
-        if(!page) throw new Error("Conta Instagram profissional não encontrada.");
-        const igId=page.instagram_business_account.id;
-        const creation=await metaGraphPost({path:"/"+igId+"/media",accessToken:metaConnection.accessToken,body:{image_url:input.imageUrl,caption:input.caption}});
-        const published=await metaGraphPost({path:"/"+igId+"/media_publish",accessToken:metaConnection.accessToken,body:{creation_id:creation.id}});
-        res.end(JSON.stringify({ok:true,approved:true,published,creation}));
+        const {creation,published,authType}=await publishInstagramMedia({mediaType:"IMAGE",imageUrl:input.imageUrl,caption:input.caption});
+        res.end(JSON.stringify({ok:true,approved:true,published,creation,authType}));
       } catch(error) { res.statusCode=502; res.end(JSON.stringify({error:"campaign_approval_failed",message:error.message})); }
       return;
     }
 
     if (req.method === "GET" && req.url === "/meta/overview") {
-      if (!metaConnection?.accessToken) {
-        res.statusCode = 401;
-        res.end(JSON.stringify({ error: "meta_not_connected" }));
-        return;
-      }
       try {
-        const accounts = await metaGraphGet({
-          path: "/me/accounts",
-          accessToken: metaConnection.accessToken,
-          params: { fields: "id,name,instagram_business_account" }
-        });
-        const page = (accounts.data || []).find(a => a.instagram_business_account?.id);
-        if (!page) {
-          res.statusCode = 404;
-          res.end(JSON.stringify({ error: "instagram_account_not_found", message: "Nenhuma conta Instagram profissional vinculada a uma Página foi encontrada." }));
-          return;
-        }
-        const igId = page.instagram_business_account.id;
-        const [profile, media] = await Promise.all([
-          metaGraphGet({ path: "/" + igId, accessToken: metaConnection.accessToken, params: { fields: "id,username,name,followers_count,media_count" } }),
-          metaGraphGet({ path: "/" + igId + "/media", accessToken: metaConnection.accessToken, params: { fields: "id,caption,like_count,comments_count,timestamp,permalink,media_type,media_url", limit: "25" } })
-        ]);
-        res.end(JSON.stringify({ page: { id: page.id, name: page.name }, instagram: profile, media: media.data || [] }));
+        const target=await getInstagramTarget();
+        const [profile,media]=target.authType==="instagram_login"
+          ? await Promise.all([
+              instagramGraphGet({path:"/me",accessToken:metaConnection.accessToken,params:{fields:"id,username,name,followers_count,media_count"}}),
+              instagramGraphGet({path:"/me/media",accessToken:metaConnection.accessToken,params:{fields:"id,caption,like_count,comments_count,timestamp,permalink,media_type,media_url",limit:"25"}})
+            ])
+          : await Promise.all([
+              metaGraphGet({path:"/"+target.igId,accessToken:metaConnection.accessToken,params:{fields:"id,username,name,followers_count,media_count"}}),
+              metaGraphGet({path:"/"+target.igId+"/media",accessToken:metaConnection.accessToken,params:{fields:"id,caption,like_count,comments_count,timestamp,permalink,media_type,media_url",limit:"25"}})
+            ]);
+        res.end(JSON.stringify({page:target.page,instagram:profile,media:media.data||[],authType:target.authType}));
       } catch (error) {
         res.statusCode = 502;
         res.end(JSON.stringify({ error: "meta_graph_failed", message: error.message }));
@@ -558,23 +661,15 @@ const server = await import("node:http").then(({ createServer }) =>
     }
 
     if (req.method === "GET" && req.url === "/meta/accounts") {
-      if (!metaConnection?.accessToken) {
-        const saved = readCookie(req, "dornelas_meta");
-        const parsed = saved ? decryptCookie(process.env.META_CLIENT_SECRET, saved) : null;
-        if (parsed) { try { const data = JSON.parse(parsed); metaConnection = { accessToken: data.accessToken, expiresAt: data.expiresAt || null, connected: true }; } catch {} }
-      }
-      if (!metaConnection?.accessToken) {
-        res.statusCode = 401;
-        res.end(JSON.stringify({ error: "meta_not_connected" }));
-        return;
-      }
       try {
-        const result = await metaGraphGet({
-          path: "/me/accounts",
-          accessToken: metaConnection.accessToken,
-          params: { fields: "id,name,instagram_business_account" }
-        });
-        res.end(JSON.stringify(result));
+        const target=await getInstagramTarget();
+        if(target.authType==="instagram_login"){
+          const profile=await instagramGraphGet({path:"/me",accessToken:metaConnection.accessToken,params:{fields:"id,username,name"}});
+          res.end(JSON.stringify({data:[{id:profile.id,name:profile.name||profile.username,instagram_business_account:{id:profile.id,username:profile.username}}],authType:target.authType}));
+        } else {
+          const result=await metaGraphGet({path:"/me/accounts",accessToken:metaConnection.accessToken,params:{fields:"id,name,instagram_business_account"}});
+          res.end(JSON.stringify(result));
+        }
       } catch (error) {
         res.statusCode = 502;
         res.end(JSON.stringify({ error: "meta_graph_failed", message: error.message }));
