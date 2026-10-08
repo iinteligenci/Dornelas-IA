@@ -1,0 +1,19 @@
+name: Content Scheduler
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+      timezone: "America/Sao_Paulo"
+  workflow_dispatch:
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Run due approved posts
+        env:
+          SCHEDULER_SECRET: ${{ secrets.DORNELAS_SCHEDULER_SECRET }}
+        run: |
+          curl --fail-with-body -sS -X POST "https://dornelas-ia.onrender.com/agent/scheduler/run" \
+            -H "x-scheduler-secret: ${SCHEDULER_SECRET}" \
+            -H "Content-Type: application/json"
