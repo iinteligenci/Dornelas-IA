@@ -262,14 +262,21 @@ const server = await import("node:http").then(({ createServer }) =>
           try { const data = JSON.parse(parsed); metaConnection = { accessToken: data.accessToken, expiresAt: data.expiresAt || null, connected: true, authType:data.authType||"facebook_login", instagramUserId:data.instagramUserId||null }; } catch {}
         }
       }
-      let targetAvailable=false, targetError=null, target=null;
+      let targetAvailable=false, targetError=null, target=null, pages=[];
       if(metaConnection?.accessToken){
-        try{target=await getInstagramTarget();targetAvailable=Boolean(target?.igId);}catch(error){targetError=error.message;}
+        try{
+          if(metaConnection.authType==="facebook_login"){
+            const accounts=await metaGraphGet({path:"/me/accounts",accessToken:metaConnection.accessToken,params:{fields:"id,name,instagram_business_account"}});
+            pages=(accounts.data||[]).map(p=>({id:p.id,name:p.name,instagramLinked:Boolean(p.instagram_business_account?.id),instagramId:p.instagram_business_account?.id||null}));
+          }
+          target=await getInstagramTarget();targetAvailable=Boolean(target?.igId);
+        }catch(error){targetError=error.message;}
       }
       res.end(JSON.stringify({
         connected: Boolean(metaConnection?.accessToken),
         targetAvailable,
         targetError,
+        pages,
         authType: metaConnection?.authType || null,
         instagramUserId: metaConnection?.instagramUserId || null,
         target: target?{authType:target.authType,igId:target.igId,username:target.page?.name||null}:null,
@@ -495,7 +502,8 @@ Não diga que publicou no Instagram: você está apenas preparando o conteúdo p
 
     if (req.method === "POST" && req.url === "/agent/scheduler/run") {
       await loadPersistedMetaConnection();
-      if(process.env.SCHEDULER_SECRET&&req.headers["x-scheduler-secret"]!==process.env.SCHEDULER_SECRET){res.statusCode=401;res.end(JSON.stringify({error:"invalid_scheduler_secret"}));return;}
+      const schedulerSecret=process.env.SCHEDULER_SECRET||process.env.DORNELAS_SCHEDULER_SECRET;
+      if(schedulerSecret&&req.headers["x-scheduler-secret"]!==schedulerSecret){res.statusCode=401;res.end(JSON.stringify({error:"invalid_scheduler_secret"}));return;}
       try{
         const current=await githubJsonGet(schedulerPath()); const list=Array.isArray(current.content)?current.content:[]; const now=Date.now();
         const due=list.filter(x=>x.status==="scheduled"&&Date.parse(x.scheduledFor)<=now); const results=[];
@@ -591,7 +599,13 @@ Não diga que publicou no Instagram: você está apenas preparando o conteúdo p
       await check("Instagram",async()=>{await getInstagramTarget();return "conectado e alvo encontrado";});
       await check("Agenda",async()=>{const s=await githubJsonGet(schedulerPath());return Array.isArray(s.content)?s.content.length:0;});
       const failures=checks.filter(x=>!x.ok);
-      const result={ok:failures.length===0,checkedAt:new Date().toISOString(),checks,priority:failures.length?"Corrigir primeiro os itens marcados como erro.":"Sistema operacionalmente saudável."};
+      const instagramCheck=checks.find(x=>x.name==="Instagram");
+      const priority=failures.length
+        ? (instagramCheck&&!instagramCheck.ok
+            ? "Meta está autorizada, mas o Instagram profissional não foi localizado. Vincule o Instagram profissional à Página correta e reconecte a Meta."
+            : "Corrigir primeiro os itens marcados como erro.")
+        : "Sistema operacionalmente saudável.";
+      const result={ok:failures.length===0,checkedAt:new Date().toISOString(),checks,priority};
       try{await githubJsonPut("generated/ai/self-audit.json",result,(await githubJsonGet("generated/ai/self-audit.json")).sha||undefined)}catch{}
       res.end(JSON.stringify(result));
       return;
@@ -615,7 +629,7 @@ Não diga que publicou no Instagram: você está apenas preparando o conteúdo p
     }
 
     if (req.method === "GET" && req.url === "/health") {
-      res.end(JSON.stringify({ ok: true, service: "dornelas-ia-agent", aiConfigured:Boolean(process.env.OPENAI_API_KEY), imageConfigured:Boolean(process.env.OPENAI_API_KEY), assetStorageConfigured:Boolean(process.env.GITHUB_TOKEN), schedulerConfigured:Boolean(process.env.GITHUB_TOKEN && process.env.SCHEDULER_SECRET) }));
+      res.end(JSON.stringify({ ok: true, service: "dornelas-ia-agent", aiConfigured:Boolean(process.env.OPENAI_API_KEY), imageConfigured:Boolean(process.env.OPENAI_API_KEY), assetStorageConfigured:Boolean(process.env.GITHUB_TOKEN), schedulerConfigured:Boolean(process.env.GITHUB_TOKEN && (process.env.SCHEDULER_SECRET||process.env.DORNELAS_SCHEDULER_SECRET)) }));
       return;
     }
 
