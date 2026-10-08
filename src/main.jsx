@@ -10,7 +10,7 @@ const initialActions=[
 function App(){
  const [autonomy,setAutonomy]=useState(2); const [running,setRunning]=useState(false); const [actions,setActions]=useState(initialActions);
  const [metaConnected,setMetaConnected]=useState(false);
- const API=import.meta.env.VITE_AGENT_API_URL||"https://dornelas-ia.onrender.com";
+ const API="https://dornelas-ia.onrender.com";
  useEffect(()=>{fetch(API+"/meta/status").then(r=>r.json()).then(d=>setMetaConnected(Boolean(d.connected))).catch(()=>setMetaConnected(false));},[]);
  const run=()=>{setRunning(true);setTimeout(()=>{setActions(a=>[{time:new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}),type:'Ação',title:'Agente executou ciclo comercial',detail:'Analisou catálogo e priorizou Bacon para aquisição de demanda.',status:'Executado'},...a]);setRunning(false)},700)};
  return <div className="app"><aside><div className="brand"><div className="logo">D</div><div><strong>Dornelas IA</strong><small>Agente comercial</small></div></div><nav><button className="active">Visão geral</button><button>Campanhas</button><button>Conteúdo</button><button>Integrações</button><button>Permissões</button><button>Resultados</button><button>Auditoria</button></nav><div className="sidefoot"><span className="dot"/> Sistema operacional</div></aside><main><header><div><span className="eyebrow">AUTONOMIA COMERCIAL</span><h1>O objetivo é vender mais.</h1><p>A IA monitora o negócio, encontra oportunidades e executa ações autorizadas.</p></div><button className="primary" onClick={run}>{running?'Executando…':'Executar ciclo agora'}</button></header>
