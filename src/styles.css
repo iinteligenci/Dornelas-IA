@@ -9,3 +9,5 @@ button:focus-visible,input:focus-visible{outline:2px solid #5faeff;outline-offse
 .card,.hero,.metric{transition:border-color .18s ease,box-shadow .18s ease}
 @media(min-width:901px){.card:hover,.metric:hover{border-color:#294a6b}.next-action:hover{border-color:#315878}}
 @media(max-width:900px){.bottom-nav{padding-bottom:env(safe-area-inset-bottom);height:calc(66px + env(safe-area-inset-bottom))}.page{padding-bottom:calc(90px + env(safe-area-inset-bottom))}}
+
+.site-proposal{display:grid;gap:14px}.proposal-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.site-proposal h2,.site-proposal h3{margin:.2rem 0}.site-proposal article p{margin:.5rem 0}.site-proposal article span{font-size:.78rem}@media(max-width:700px){.proposal-grid{grid-template-columns:1fr}}
