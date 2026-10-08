@@ -346,7 +346,10 @@ Quando o usuário pedir conteúdo para Instagram, entregue uma versão pronta pa
 Não invente preços, produtos, promoções, estoque ou fatos. Use o catálogo/site fornecido quando disponível.
 Se o pedido for sobre estratégia, dê ações concretas e priorizadas.
 Não diga que publicou no Instagram: você está apenas preparando o conteúdo para o usuário copiar e publicar manualmente.`;
-        const result=await runAI({instructions,input:JSON.stringify({business:"Defumados Dornelas",message,site:{url:site.url,title:site.title,text:site.text?.slice(0,9000)},catalog,history:Array.isArray(input.history)?input.history.slice(-10):[]})});
+        const aiInput=input.imageDataUrl
+          ? [{role:"user",content:[{type:"input_text",text:JSON.stringify({business:"Defumados Dornelas",message,site:{url:site.url,title:site.title,text:site.text?.slice(0,9000)},catalog,history:Array.isArray(input.history)?input.history.slice(-10):[]})},{type:"input_image",image_url:input.imageDataUrl}]}]
+          : JSON.stringify({business:"Defumados Dornelas",message,site:{url:site.url,title:site.title,text:site.text?.slice(0,9000)},catalog,history:Array.isArray(input.history)?input.history.slice(-10):[]});
+        const result=await runAI({instructions,input:aiInput});
         res.end(JSON.stringify({ok:true,ai:true,model:result.model,response:result.text,responseId:result.responseId}));
       } catch(error) { res.statusCode=502; res.end(JSON.stringify({error:"ai_chat_failed",message:error.message})); }
       return;
@@ -548,6 +551,53 @@ Não diga que publicou no Instagram: você está apenas preparando o conteúdo p
           res.end(JSON.stringify(result));
         }
       }catch(error){res.statusCode=502;res.end(JSON.stringify({error:"meta_graph_failed",message:error.message}));}
+      return;
+    }
+
+    if (req.method === "GET" && req.url === "/agent/trends") {
+      try {
+        const trendUrl="https://trends.google.com/trending/rss?geo=BR&hl=pt-BR";
+        const rr=await fetch(trendUrl,{headers:{"User-Agent":"Mozilla/5.0 Dornelas-IA"}});
+        const xml=await rr.text();
+        const items=[...xml.matchAll(/<item>[\\s\\S]*?<title>([\\s\\S]*?)<\\/title>[\\s\\S]*?<ht:approx_traffic>([\\s\\S]*?)<\\/ht:approx_traffic>[\\s\\S]*?<description>([\\s\\S]*?)<\\/description>[\\s\\S]*?<\\/item>/gi)].slice(0,15).map(m=>({title:m[1].replace(/<!\\[CDATA\\[|\\]\\]>/g,"").trim(),traffic:m[2].trim(),description:m[3].replace(/<[^>]+>/g," ").replace(/<!\\[CDATA\\[|\\]\\]>/g,"").trim()}));
+        let ideas=[];
+        try{
+          const ai=await runAI({instructions:"Transforme tendências públicas em oportunidades de conteúdo para uma empresa brasileira de defumados. Não diga que uma tendência é sobre carne se ela não tiver relação. Escolha apenas ângulos naturais e comerciais. Retorne JSON {items:[{trend,angle,hook,format,reason}]} com no máximo 7 itens.",input:JSON.stringify({trends:items,business:"Defumados Dornelas"})});
+          ideas=cleanJson(ai.text);
+        }catch{ideas={items:[]};}
+        res.end(JSON.stringify({ok:true,source:"Google Trends público",trends:items,ideas}));
+      }catch(error){res.statusCode=502;res.end(JSON.stringify({error:"trends_failed",message:error.message}));}
+      return;
+    }
+
+    if (req.method === "POST" && req.url === "/agent/self-audit") {
+      const checks=[];
+      const check=async(name,fn)=>{try{const value=await fn();checks.push({name,ok:true,value});}catch(error){checks.push({name,ok:false,error:error.message});}};
+      await check("IA",async()=>{const r=await runAI({instructions:"Responda apenas OK.",input:"healthcheck"});return r.model;});
+      await check("Site",async()=>{const s=await fetchSiteSnapshot();return {title:s.title,url:s.url};});
+      await check("Instagram",async()=>{await getInstagramTarget();return "conectado e alvo encontrado";});
+      await check("Agenda",async()=>{const s=await githubJsonGet(schedulerPath());return Array.isArray(s.content)?s.content.length:0;});
+      const failures=checks.filter(x=>!x.ok);
+      const result={ok:failures.length===0,checkedAt:new Date().toISOString(),checks,priority:failures.length?"Corrigir primeiro os itens marcados como erro.":"Sistema operacionalmente saudável."};
+      try{await githubJsonPut("generated/ai/self-audit.json",result,(await githubJsonGet("generated/ai/self-audit.json")).sha||undefined)}catch{}
+      res.end(JSON.stringify(result));
+      return;
+    }
+
+    if (req.method === "POST" && req.url === "/agent/self-fix") {
+      try{
+        const before=await fetch("https://dornelas-ia.onrender.com/health").then(r=>r.json()).catch(()=>({}));
+        const current=await githubJsonGet(schedulerPath());
+        let list=Array.isArray(current.content)?current.content:[];
+        const valid=list.filter(x=>x&&x.id&&x.caption&&x.scheduledFor&&x.status);
+        let changed=valid.length!==list.length;
+        if(!current.exists||changed) await githubJsonPut(schedulerPath(),valid,current.sha||undefined);
+        const auditReq=await fetch("https://dornelas-ia.onrender.com/agent/self-audit",{method:"POST",headers:{"Content-Type":"application/json"},body:"{}"});
+        const audit=await auditReq.json();
+        const state={ok:audit.ok,applied:["normalização da agenda","revalidação das integrações","registro do diagnóstico"],changed,at:new Date().toISOString(),health:before};
+        try{const saved=await githubJsonGet("generated/ai/system-state.json");await githubJsonPut("generated/ai/system-state.json",state,saved.sha||undefined)}catch{}
+        res.end(JSON.stringify({ok:true,message:"Autocorreção segura concluída.",audit}));
+      }catch(error){res.statusCode=502;res.end(JSON.stringify({error:"self_fix_failed",message:error.message}));}
       return;
     }
 
