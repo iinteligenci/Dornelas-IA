@@ -67,6 +67,33 @@ async function fetchSiteSnapshot() {
 }
 
 function schedulerPath(){ return process.env.SCHEDULE_FILE || "generated/ai/schedule.json"; }
+function metaPersistPath(){ return process.env.META_PERSIST_FILE || "generated/ai/meta-connection.json"; }
+
+async function loadPersistedMetaConnection(){
+  if(metaConnection?.accessToken) return true;
+  if(!process.env.GITHUB_TOKEN || !process.env.META_CLIENT_SECRET) return false;
+  try{
+    const saved=await githubJsonGet(metaPersistPath());
+    if(!saved.exists) return false;
+    const encrypted=saved.content?.encrypted;
+    const parsed=encrypted?decryptCookie(process.env.META_CLIENT_SECRET,encrypted):null;
+    if(!parsed) return false;
+    const data=JSON.parse(parsed);
+    if(!data.accessToken) return false;
+    metaConnection={accessToken:data.accessToken,expiresAt:data.expiresAt||null,connected:true};
+    return true;
+  }catch(error){ console.error("Meta persisted connection load failed:",error.message); return false; }
+}
+
+async function persistMetaConnection(){
+  if(!process.env.GITHUB_TOKEN || !metaConnection?.accessToken) return;
+  const encrypted=cookieToken(process.env.META_CLIENT_SECRET,JSON.stringify({accessToken:metaConnection.accessToken,expiresAt:metaConnection.expiresAt||null}));
+  try{
+    const current=await githubJsonGet(metaPersistPath());
+    await githubJsonPut(metaPersistPath(),{encrypted,updatedAt:new Date().toISOString()},current.sha);
+  }catch(error){ console.error("Meta persisted connection save failed:",error.message); }
+}
+
 
 const server = await import("node:http").then(({ createServer }) =>
   createServer(async (req, res) => {
@@ -111,6 +138,7 @@ const server = await import("node:http").then(({ createServer }) =>
         const accessToken = longLived.access_token || token.access_token;
         const expiresAt = longLived.expires_in ? Date.now() + Number(longLived.expires_in) * 1000 : null;
         metaConnection = { accessToken, expiresAt, connected: true };
+        await persistMetaConnection();
         const metaCookie = cookieToken(process.env.META_CLIENT_SECRET, JSON.stringify({ accessToken, expiresAt }));
         res.setHeader("Set-Cookie", "dornelas_meta=" + encodeURIComponent(metaCookie) + "; Path=/; Max-Age=5184000; HttpOnly; Secure; SameSite=None");
 
@@ -159,6 +187,7 @@ const server = await import("node:http").then(({ createServer }) =>
     }
 
     if (req.method === "GET" && req.url === "/meta/status") {
+      await loadPersistedMetaConnection();
       if (!metaConnection?.accessToken) {
         const saved = readCookie(req, "dornelas_meta");
         const parsed = saved ? decryptCookie(process.env.META_CLIENT_SECRET, saved) : null;
@@ -199,6 +228,7 @@ const server = await import("node:http").then(({ createServer }) =>
     }
 
     if (req.method === "GET" && req.url === "/meta/data") {
+      await loadPersistedMetaConnection();
       if (!metaConnection?.accessToken) { res.statusCode=401; res.end(JSON.stringify({error:"meta_not_connected"})); return; }
       try {
         const accounts = await metaGraphGet({ path:"/me/accounts", accessToken:metaConnection.accessToken, params:{fields:"id,name,instagram_business_account"} });
@@ -216,6 +246,7 @@ const server = await import("node:http").then(({ createServer }) =>
     }
 
     if (req.method === "POST" && req.url === "/meta/publish") {
+      await loadPersistedMetaConnection();
       if (!metaConnection?.accessToken) { res.statusCode=401; res.end(JSON.stringify({error:"meta_not_connected"})); return; }
       let body=""; for await (const chunk of req) body+=chunk;
       try {
@@ -318,6 +349,7 @@ const server = await import("node:http").then(({ createServer }) =>
     }
 
     if (req.method === "POST" && req.url === "/agent/scheduler/run") {
+      await loadPersistedMetaConnection();
       if(process.env.SCHEDULER_SECRET && req.headers["x-scheduler-secret"]!==process.env.SCHEDULER_SECRET) { res.statusCode=401; res.end(JSON.stringify({error:"invalid_scheduler_secret"})); return; }
       try {
         const current=await githubJsonGet(schedulerPath());
