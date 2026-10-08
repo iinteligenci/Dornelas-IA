@@ -2,11 +2,37 @@ import { runSalesCycle } from "./agent/cycle.js";
 import { createOAuthState } from "./security/state.js";
 import { metaAuthorizeUrl, exchangeMetaCode, exchangeForLongLivedMetaToken, metaGraphGet } from "./integrations/meta.js";
 import { googleAuthorizeUrl, exchangeGoogleCode } from "./integrations/google.js";
+import crypto from "node:crypto";
+
+function cookieToken(secret, value) {
+  const key = crypto.createHash("sha256").update(String(secret || "")).digest();
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv("aes-256-gcm", key, iv);
+  const encrypted = Buffer.concat([cipher.update(String(value), "utf8"), cipher.final()]);
+  return Buffer.concat([iv, cipher.getAuthTag(), encrypted]).toString("base64url");
+}
+
+function readCookie(req, name) {
+  const raw = req.headers.cookie || "";
+  const part = raw.split(";").map(v => v.trim()).find(v => v.startsWith(name + "="));
+  return part ? decodeURIComponent(part.slice(name.length + 1)) : null;
+}
+
+function decryptCookie(secret, value) {
+  try {
+    const key = crypto.createHash("sha256").update(String(secret || "")).digest();
+    const data = Buffer.from(value, "base64url");
+    const decipher = crypto.createDecipheriv("aes-256-gcm", key, data.subarray(0, 12));
+    decipher.setAuthTag(data.subarray(12, 28));
+    return decipher.update(data.subarray(28), undefined, "utf8") + decipher.final("utf8");
+  } catch { return null; }
+}
 
 const port = Number(process.env.PORT || 8787);
 
 const oauthStates = new Set();
 let metaConnection = process.env.META_ACCESS_TOKEN ? { accessToken: process.env.META_ACCESS_TOKEN, expiresAt: null, connected: true } : null;
+let googleConnection = null;
 
 const demoContext = {
   autonomyLevel: 2,
@@ -23,6 +49,7 @@ const server = await import("node:http").then(({ createServer }) =>
   createServer(async (req, res) => {
     res.setHeader("Content-Type", "application/json; charset=utf-8");
     res.setHeader("Access-Control-Allow-Origin", "https://iinteligenci.github.io");
+    res.setHeader("Access-Control-Allow-Credentials", "true");
     res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
     res.setHeader("Access-Control-Allow-Headers", "Content-Type");
     if (req.method === "OPTIONS") { res.statusCode = 204; res.end(); return; }
@@ -58,11 +85,11 @@ const server = await import("node:http").then(({ createServer }) =>
           accessToken: token.access_token
         });
 
-        metaConnection = {
-          accessToken: longLived.access_token || token.access_token,
-          expiresAt: longLived.expires_in ? Date.now() + Number(longLived.expires_in) * 1000 : null,
-          connected: true
-        };
+        const accessToken = longLived.access_token || token.access_token;
+        const expiresAt = longLived.expires_in ? Date.now() + Number(longLived.expires_in) * 1000 : null;
+        metaConnection = { accessToken, expiresAt, connected: true };
+        const metaCookie = cookieToken(process.env.META_CLIENT_SECRET, JSON.stringify({ accessToken, expiresAt }));
+        res.setHeader("Set-Cookie", "dornelas_meta=" + encodeURIComponent(metaCookie) + "; Path=/; Max-Age=5184000; HttpOnly; Secure; SameSite=None");
 
         let accounts = [];
         try {
@@ -94,7 +121,14 @@ const server = await import("node:http").then(({ createServer }) =>
       if (!code) { res.statusCode = 400; res.end(JSON.stringify({ error: "missing_code" })); return; }
       try {
         const token = await exchangeGoogleCode({ clientId: process.env.GOOGLE_CLIENT_ID, clientSecret: process.env.GOOGLE_CLIENT_SECRET, redirectUri: process.env.GOOGLE_REDIRECT_URI, code });
-        res.end(JSON.stringify({ ok: true, provider: "google", connected: true, token_received: Boolean(token?.access_token), refresh_token_received: Boolean(token?.refresh_token) }));
+        googleConnection = { refreshToken: token?.refresh_token || null, connected: Boolean(token?.refresh_token) };
+        if (googleConnection.refreshToken) {
+          const googleCookie = cookieToken(process.env.GOOGLE_CLIENT_SECRET, JSON.stringify(googleConnection));
+          res.setHeader("Set-Cookie", "dornelas_google=" + encodeURIComponent(googleCookie) + "; Path=/; Max-Age=31536000; HttpOnly; Secure; SameSite=None");
+        }
+        res.statusCode = 302;
+        res.setHeader("Location", "https://iinteligenci.github.io/Dornelas-IA/?google=connected");
+        res.end();
       } catch (error) {
         res.statusCode = 502; res.end(JSON.stringify({ error: "oauth_exchange_failed" }));
       }
@@ -102,10 +136,27 @@ const server = await import("node:http").then(({ createServer }) =>
     }
 
     if (req.method === "GET" && req.url === "/meta/status") {
+      if (!metaConnection?.accessToken) {
+        const saved = readCookie(req, "dornelas_meta");
+        const parsed = saved ? decryptCookie(process.env.META_CLIENT_SECRET, saved) : null;
+        if (parsed) {
+          try { const data = JSON.parse(parsed); metaConnection = { accessToken: data.accessToken, expiresAt: data.expiresAt || null, connected: true }; } catch {}
+        }
+      }
       res.end(JSON.stringify({
         connected: Boolean(metaConnection?.accessToken),
         expiresAt: metaConnection?.expiresAt || null
       }));
+      return;
+    }
+
+    if (req.method === "GET" && req.url === "/google/status") {
+      const saved = readCookie(req, "dornelas_google");
+      if (saved && !googleConnection) {
+        const parsed = decryptCookie(process.env.GOOGLE_CLIENT_SECRET, saved);
+        if (parsed) { try { googleConnection = JSON.parse(parsed); } catch {} }
+      }
+      res.end(JSON.stringify({ connected: Boolean(googleConnection?.refreshToken) }));
       return;
     }
 
@@ -141,6 +192,11 @@ const server = await import("node:http").then(({ createServer }) =>
     }
 
     if (req.method === "GET" && req.url === "/meta/accounts") {
+      if (!metaConnection?.accessToken) {
+        const saved = readCookie(req, "dornelas_meta");
+        const parsed = saved ? decryptCookie(process.env.META_CLIENT_SECRET, saved) : null;
+        if (parsed) { try { const data = JSON.parse(parsed); metaConnection = { accessToken: data.accessToken, expiresAt: data.expiresAt || null, connected: true }; } catch {} }
+      }
       if (!metaConnection?.accessToken) {
         res.statusCode = 401;
         res.end(JSON.stringify({ error: "meta_not_connected" }));
