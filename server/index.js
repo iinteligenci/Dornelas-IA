@@ -565,16 +565,20 @@ Não diga que publicou no Instagram: você está apenas preparando o conteúdo p
 
     if (req.method === "GET" && req.url === "/agent/trends") {
       try {
-        const trendUrl="https://trends.google.com/trending/rss?geo=BR&hl=pt-BR";
-        const rr=await fetch(trendUrl,{headers:{"User-Agent":"Mozilla/5.0 Dornelas-IA"}});
+        const rr=await fetch("https://trends.google.com/trending/rss?geo=BR&hl=pt-BR",{headers:{"User-Agent":"Mozilla/5.0 Dornelas-IA"}});
+        if(!rr.ok) throw new Error("Google Trends HTTP "+rr.status);
         const xml=await rr.text();
-        const items=[...xml.matchAll(/<item>[\\s\\S]*?<title>([\\s\\S]*?)<\\/title>[\\s\\S]*?<ht:approx_traffic>([\\s\\S]*?)<\\/ht:approx_traffic>[\\s\\S]*?<description>([\\s\\S]*?)<\\/description>[\\s\\S]*?<\\/item>/gi)].slice(0,15).map(m=>({title:m[1].replace(/<!\\[CDATA\\[|\\]\\]>/g,"").trim(),traffic:m[2].trim(),description:m[3].replace(/<[^>]+>/g," ").replace(/<!\\[CDATA\\[|\\]\\]>/g,"").trim()}));
-        let ideas=[];
+        const itemBlocks=xml.split("<item>").slice(1,16);
+        const trends=itemBlocks.map(block=>{
+          const pick=(tag)=>{const m=block.match(new RegExp("<"+tag+"[^>]*>([\\s\\S]*?)</"+tag+">","i"));return (m?.[1]||"").replace(/<!\\[CDATA\\[|\\]\\]>/g,"").replace(/<[^>]+>/g," ").trim();};
+          return {title:pick("title"),traffic:pick("ht:approx_traffic"),description:pick("description")};
+        }).filter(x=>x.title);
+        let ideas={items:[]};
         try{
-          const ai=await runAI({instructions:"Transforme tendências públicas em oportunidades de conteúdo para uma empresa brasileira de defumados. Não diga que uma tendência é sobre carne se ela não tiver relação. Escolha apenas ângulos naturais e comerciais. Retorne JSON {items:[{trend,angle,hook,format,reason}]} com no máximo 7 itens.",input:JSON.stringify({trends:items,business:"Defumados Dornelas"})});
+          const ai=await runAI({instructions:"Transforme tendências públicas em oportunidades de conteúdo para uma empresa brasileira de defumados. Escolha apenas ângulos naturais e comerciais. Retorne JSON {items:[{trend,angle,hook,format,reason}]} com no máximo 7 itens.",input:JSON.stringify({trends,business:"Defumados Dornelas"})});
           ideas=cleanJson(ai.text);
-        }catch{ideas={items:[]};}
-        res.end(JSON.stringify({ok:true,source:"Google Trends público",trends:items,ideas}));
+        }catch{}
+        res.end(JSON.stringify({ok:true,source:"Google Trends público",trends,ideas}));
       }catch(error){res.statusCode=502;res.end(JSON.stringify({error:"trends_failed",message:error.message}));}
       return;
     }
