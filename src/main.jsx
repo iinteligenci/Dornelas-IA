@@ -142,6 +142,14 @@ function Central({meta,site,health,audit,loading,connect,runAudit,repair,message
     <Action title="3 · Criar conteúdo" text="Transformar a oportunidade em legenda, Reel, Stories e CTA prontos para copiar." button="Criar conteúdo" onClick={()=>openChat("Crie uma campanha completa para vender Bacon Dornelas: 1 legenda, 1 roteiro de Reel, 5 Stories e CTA. Use somente informações reais do catálogo.")}/>
    </div>
   </section>
+  <section className="card site-growth-card">
+   <div className="cardhead"><div><span className="eyebrow">SITE QUE VENDE</span><h2>A IA também melhora sua loja.</h2></div><span className="pill green">otimização contínua</span></div>
+   <p className="muted">Ela analisa o site real, encontra gargalos de conversão e monta um plano técnico. Eu posso usar esse plano para corrigir o código sem apagar o que já funciona.</p>
+   <div className="next-grid">
+    <Action title="Diagnosticar" text="Descobrir o que pode estar reduzindo pedidos, principalmente no celular." button="Analisar site" onClick={()=>setTab("config")}/>
+    <Action title="Transformar em ação" text="Gerar um plano priorizado com alteração, impacto e critério de validação." button="Propor melhorias" onClick={()=>setTab("config")}/>
+   </div>
+  </section>
   <section className="card sales-mode-card">
    <div className="cardhead"><div><span className="eyebrow">MODO VENDA</span><h2>Você não precisa esperar o Instagram.</h2></div><span className="pill green">ativo</span></div>
    <p className="muted">A IA usa o catálogo do site, pesquisa pública e os prints que você enviar. A conexão automática do Instagram é complementar.</p>
