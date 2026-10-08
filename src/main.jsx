@@ -4,6 +4,17 @@ import "./styles.css";
 
 const API="https://dornelas-ia.onrender.com";
 
+class ErrorBoundary extends React.Component{
+ constructor(props){super(props);this.state={error:null}}
+ static getDerivedStateFromError(error){return {error}}
+ render(){
+  if(this.state.error){
+   return <div className="app"><main className="page"><section className="card"><span className="eyebrow">DORNELAS IA</span><h1>O sistema encontrou um erro.</h1><p className="muted">Atualize a página. Se o erro continuar, envie esta mensagem para diagnóstico:</p><pre>{this.state.error?.message||"Erro inesperado"}</pre><button className="primary" onClick={()=>window.location.reload()}>Recarregar</button></section></main></div>
+  }
+  return this.props.children
+ }
+}
+
 function App(){
  const [tab,setTab]=useState("central");
  const [meta,setMeta]=useState(null);
@@ -143,4 +154,4 @@ function Agenda(){
 function Config({meta,connect,refresh}){return <div className="page"><header className="section-head"><div><span className="eyebrow">CONEXÕES</span><h1>Conectar uma vez.</h1><p>Usamos as credenciais que já existem no servidor. Não coloque senhas aqui.</p></div></header><section className="card"><Connection name="Instagram / Meta" connected={meta?.targetAvailable} onClick={connect}/><div className="notice">{meta?.targetAvailable?"Instagram profissional encontrado e pronto para a IA.":meta?.connected?("Meta autorizada, mas o alvo do Instagram não foi encontrado. "+(meta.targetError||"Reconecte após vincular o Instagram profissional à Página correta.")):"Ainda não há autorização da Meta."}</div>{meta?.connected&&!meta?.targetAvailable&&<ol className="muted"><li>Abra a Página do Facebook que administra a Dornelas.</li><li>Em Configurações → Contas vinculadas, conecte o Instagram profissional da Dornelas.</li><li>Depois toque em “Reconectar” aqui e autorize novamente.</li></ol>}<button className="secondary" onClick={refresh}>Verificar novamente</button></section></div>}
 function Connection({name,connected,onClick}){return <div className="connection"><div><b>{name}</b><small>{connected?"Conectado ao agente":"Ainda não conectado"}</small></div><button onClick={onClick}>{connected?"Reconectar":"Conectar"}</button></div>}
 
-createRoot(document.getElementById("root")).render(<App/>);
+createRoot(document.getElementById("root")).render(<ErrorBoundary><App/></ErrorBoundary>);
