@@ -258,11 +258,24 @@ function Agenda({openChat}){
 
 function Config({meta,connect,refresh}){
  const ready=Boolean(meta?.targetAvailable);
- return <div className="page"><header className="section-head"><div><span className="eyebrow">CONEXÕES</span><h1>Conectar uma vez.</h1><p>Usamos as credenciais que já existem no servidor. Nunca coloque senhas aqui.</p></div></header>
+ const [busy,setBusy]=useState(false),[report,setReport]=useState(null),[error,setError]=useState("");
+ const collect=async()=>{
+  if(busy)return;setBusy(true);setError("");
+  try{const d=await api("/agent/knowledge/collect",{method:"POST",timeout:120000,body:{}});setReport({type:"collect",data:d});}
+  catch(e){setError(e.message)}finally{setBusy(false)}
+ };
+ const test=async()=>{
+  if(busy)return;setBusy(true);setError("");
+  try{const d=await api("/agent/knowledge/test",{method:"POST",timeout:180000,body:{}});setReport({type:"test",data:d});}
+  catch(e){setError(e.message)}finally{setBusy(false)}
+ };
+ return <div className="page"><header className="section-head"><div><span className="eyebrow">CONEXÕES + INTELIGÊNCIA</span><h1>Dados alimentando a IA.</h1><p>As conexões autorizadas são usadas para coletar dados, testar disponibilidade e construir a base de inteligência comercial.</p></div></header>
   <section className="card"><Connection name="Instagram / Meta" connected={ready} onClick={connect}/>
    <div className="notice">{ready?"Instagram profissional encontrado e pronto para a IA.":meta?.connected?("Meta autorizada, mas o alvo do Instagram não foi encontrado. "+(meta.targetError||"O sistema já tentou os caminhos disponíveis.")):"Ainda não há autorização da Meta."}</div>
    {meta?.connected&&!ready&&<ol className="muted"><li>Abra a Página do Facebook que administra a Dornelas.</li><li>Em Configurações → Contas vinculadas, conecte o Instagram profissional.</li><li>Depois toque em “Reconectar” e autorize novamente.</li></ol>}
-   <button className="secondary" onClick={refresh}>Verificar novamente</button>
+   <div className="hero-actions"><button className="secondary" onClick={refresh}>Verificar conexões</button><button className="primary" onClick={collect} disabled={busy}>{busy?"Coletando…":"Construir banco da IA"}</button><button className="secondary" onClick={test} disabled={busy}>{busy?"Testando…":"Testar conexões 10×"}</button></div>
+   {error&&<div className="notice">{error}</div>}
+   {report&&<section className="card"><span className="eyebrow">{report.type==="test"?"TESTE DE CONEXÕES":"BASE DE CONHECIMENTO"}</span><pre>{JSON.stringify(report.data,null,2)}</pre></section>}
   </section>
  </div>
 }
