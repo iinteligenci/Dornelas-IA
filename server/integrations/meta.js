@@ -46,3 +46,18 @@ export async function metaGraphGet({ path, accessToken, params = {} }) {
   }
   return data;
 }
+
+
+export async function metaGraphPost({ path, accessToken, body = {} }) {
+  const params = new URLSearchParams({ ...body, access_token: accessToken });
+  const response = await fetch(`${GRAPH_BASE}${path}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: params
+  });
+  const data = await response.json();
+  if (!response.ok || data.error) {
+    throw new Error(data?.error?.message || `Meta Graph API failed: ${response.status}`);
+  }
+  return data;
+}
