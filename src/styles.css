@@ -6,3 +6,9 @@
 .empty{min-height:180px}.empty p{color:#8094ad;font-size:12px;line-height:1.6}.statusTag{display:inline-block;margin-top:8px;font-size:10px;color:#f0c56b;background:#34290e;border:1px solid #5a4618;border-radius:6px;padding:6px 8px}
 
 .form{display:grid;gap:10px}.form label{font-size:11px;color:#7f94ad}.form select,.form input,.form textarea{width:100%;background:#07101f;color:#e9f1fc;border:1px solid #29415d;border-radius:8px;padding:10px;font:inherit}.form textarea{resize:vertical}.form .primary{width:max-content}.draft{margin-top:8px;border:1px solid #29415d;background:#091727;border-radius:10px;padding:16px}.draft h3{margin:0 0 8px}.draft p{color:#9aacc2;line-height:1.5;font-size:12px}.muted{color:#8195ad;font-size:11px;line-height:1.5}.empty{padding:20px;color:#7f94ad}
+
+
+.studio-actions{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:14px}
+.studio-actions input{min-width:220px}
+.studio-image{display:block;max-width:520px;width:100%;margin-top:16px;border-radius:14px;border:1px solid rgba(255,255,255,.08)}
+.ai-analysis pre,.card>pre{white-space:pre-wrap;word-break:break-word;max-height:520px;overflow:auto}
