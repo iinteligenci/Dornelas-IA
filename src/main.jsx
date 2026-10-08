@@ -16,6 +16,8 @@ function App(){
  const [actions,setActions]=useState(initialActions);
  const [metaConnected,setMetaConnected]=useState(false);
  const [googleConnected,setGoogleConnected]=useState(false);
+ const [siteConnected,setSiteConnected]=useState(false);
+ const [siteCatalog,setSiteCatalog]=useState(null);
  const [error,setError]=useState('');
  const [metaData,setMetaData]=useState(null);
  const [aiAnalysis,setAiAnalysis]=useState('');
@@ -25,9 +27,10 @@ function App(){
    try{
      const [m,g]=await Promise.all([
        fetch(API+"/meta/status",{credentials:"include"}).then(r=>r.json()),
-       fetch(API+"/google/status",{credentials:"include"}).then(r=>r.json())
+       fetch(API+"/google/status",{credentials:"include"}).then(r=>r.json()),
+       fetch(API+"/site/status").then(r=>r.json())
      ]);
-     setMetaConnected(Boolean(m.connected)); setGoogleConnected(Boolean(g.connected));
+     setMetaConnected(Boolean(m.connected)); setGoogleConnected(Boolean(g.connected)); setSiteConnected(Boolean(s.connected));
    }catch{setMetaConnected(false);setGoogleConnected(false);}
  };
  useEffect(()=>{refreshConnections();},[]);
@@ -70,8 +73,8 @@ function App(){
    <div className="sidefoot"><span className="dot"/> Sistema operacional</div>
   </aside>
   <main>
-   {active==='Visão geral'&&<Overview aiAnalysis={aiAnalysis} setAiAnalysis={setAiAnalysis} autonomy={autonomy} setAutonomy={setAutonomy} running={running} run={run} actions={actions} metaConnected={metaConnected} googleConnected={googleConnected} refreshConnections={refreshConnections} error={error} metaData={metaData} loadMetaData={loadMetaData} loadingMeta={loadingMeta}/>}
-   {active==='Integrações'&&<Integrations metaConnected={metaConnected} googleConnected={googleConnected} refreshConnections={refreshConnections}/>}
+   {active==='Visão geral'&&<Overview aiAnalysis={aiAnalysis} setAiAnalysis={setAiAnalysis} autonomy={autonomy} setAutonomy={setAutonomy} running={running} run={run} actions={actions} metaConnected={metaConnected} googleConnected={googleConnected} siteConnected={siteConnected} refreshConnections={refreshConnections} error={error} metaData={metaData} loadMetaData={loadMetaData} loadingMeta={loadingMeta}/>}
+   {active==='Integrações'&&<Integrations metaConnected={metaConnected} googleConnected={googleConnected} siteConnected={siteConnected} refreshConnections={refreshConnections}/>}
    {active==='Estúdio IA'&&<Studio metaData={metaData} setMetaData={setMetaData} metaConnected={metaConnected} autonomy={autonomy} setActions={setActions}/>}
    {active==='Campanhas'&&<Campaigns setActions={setActions} autonomy={autonomy} metaData={metaData}/>} 
    {active==='Conteúdo'&&<Content metaConnected={metaConnected} metaData={metaData} setMetaData={setMetaData} setActions={setActions} autonomy={autonomy}/>} 
@@ -82,7 +85,7 @@ function App(){
  </div>
 }
 
-function Overview({aiAnalysis,setAiAnalysis,autonomy,setAutonomy,running,run,actions,metaConnected,googleConnected,refreshConnections,error,metaData,loadMetaData,loadingMeta}){
+function Overview({aiAnalysis,setAiAnalysis,autonomy,setAutonomy,running,run,actions,metaConnected,googleConnected,siteConnected,refreshConnections,error,metaData,loadMetaData,loadingMeta}){
  const analyze=async()=>{
    try{
      setAiAnalysis("Analisando dados reais…");
@@ -98,21 +101,21 @@ function Overview({aiAnalysis,setAiAnalysis,autonomy,setAutonomy,running,run,act
  <section className="hero"><div><span className="pill green">● Autonomia nível {autonomy}</span><h2>Agente trabalhando para aumentar as vendas</h2><p>O ciclo consulta dados reais das conexões disponíveis.</p></div><div className="autonomy"><label>Nível de autonomia</label><select value={autonomy} onChange={e=>setAutonomy(+e.target.value)}><option value="0">0 — Observar</option><option value="1">1 — Preparar</option><option value="2">2 — Executar ações autorizadas</option><option value="3">3 — Autonomia de vendas</option></select></div></section>
  {error&&<div className="error">⚠ {error}</div>}
  <div className="grid"><Metric title="Vendas hoje" value="R$ 0,00" note="Dados de vendas ainda não conectados"/><Metric title="Pedidos" value="0" note="Integração de pedidos pendente"/><Metric title="Campanhas ativas" value="0" note="Nenhuma publicação automática"/><Metric title="Oportunidades" value="2" note="Detectadas pelo agente"/></div>
- <section className="columns"><ActionCard actions={actions}/><Connections metaConnected={metaConnected} googleConnected={googleConnected} refreshConnections={refreshConnections}/></section>
+ <section className="columns"><ActionCard actions={actions}/><Connections metaConnected={metaConnected} googleConnected={googleConnected} siteConnected={siteConnected} refreshConnections={refreshConnections}/></section>
  {aiAnalysis&&<section className="card ai-analysis"><span className="eyebrow">CÉREBRO OPERACIONAL · GPT-6 LUNA</span><h3>Análise estratégica</h3><pre>{aiAnalysis}</pre></section>}<section className="card objective"><span className="eyebrow">DIRETRIZ PRINCIPAL</span><h3>Aumentar vendas com segurança</h3><div className="rules"><span>✓ Priorizar receita e conversão</span><span>✓ Respeitar estoque e margem</span><span>✓ Não inventar ofertas</span><span>✓ Registrar ações</span></div></section></>
 }
 
 function ActionCard({actions}){return <div className="card"><div className="cardhead"><div><span className="eyebrow">CENTRAL DE AÇÕES</span><h3>O que a IA está fazendo</h3></div><span className="live">● LIVE</span></div>{actions.map((a,i)=><div className="action" key={i}><div className="time">{a.time}</div><div className="actionbody"><div className="actiontitle">{a.title}<span>{a.status}</span></div><p>{a.detail}</p></div></div>)}</div>}
 
-function Connections({metaConnected,googleConnected,refreshConnections}){return <div className="card"><div className="cardhead"><div><span className="eyebrow">CONEXÕES</span><h3>Contas e fontes</h3></div><button className="mini" onClick={refreshConnections}>Atualizar</button></div><Connection name="Site Dornelas" status="Integração ainda não implementada"/><Connection name="Instagram / Meta" status={metaConnected?"Conectado":"OAuth necessário"} connected={metaConnected}/><Connection name="Google Business Profile" status={googleConnected?"Conectado":"OAuth necessário"} connected={googleConnected}/><Connection name="Pedidos / vendas" status="Integração ainda não implementada"/><div className="notice">🔒 OAuth, permissões específicas e credenciais fora do código.</div></div>}
+function Connections({metaConnected,googleConnected,siteConnected,refreshConnections}){return <div className="card"><div className="cardhead"><div><span className="eyebrow">CONEXÕES</span><h3>Contas e fontes</h3></div><button className="mini" onClick={refreshConnections}>Atualizar</button></div><Connection name="Site Dornelas" status={siteConnected?"Conectado — leitura de catálogo ativa":"Não acessível"} connected={siteConnected}/><Connection name="Instagram / Meta" status={metaConnected?"Conectado":"OAuth necessário"} connected={metaConnected}/><Connection name="Google Business Profile" status={googleConnected?"Conectado":"OAuth necessário"} connected={googleConnected}/><Connection name="Pedidos / vendas" status="Integração ainda não implementada"/><div className="notice">🔒 OAuth, permissões específicas e credenciais fora do código.</div></div>}
 
-function Integrations({metaConnected,googleConnected,refreshConnections}){return <><header><div><span className="eyebrow">INTEGRAÇÕES</span><h1>Conectar e manter conectado.</h1><p>As conexões autorizadas ficam disponíveis ao agente sem armazenar senhas.</p></div><button className="primary" onClick={refreshConnections}>Verificar conexões</button></header><section className="card"><Connection name="Instagram / Meta" status={metaConnected?"Conectado":"OAuth necessário"} connected={metaConnected}/><Connection name="Google Business Profile" status={googleConnected?"Conectado":"OAuth necessário"} connected={googleConnected}/><Connection name="Site Dornelas" status="Ainda não implementado"/><Connection name="Pedidos / vendas" status="Ainda não implementado"/></section><div className="notice">Meta já está conectada. A persistência usa cookie HttpOnly seguro; a conexão depende da validade do token autorizado.</div></>}
+function Integrations({metaConnected,googleConnected,siteConnected,refreshConnections}){return <><header><div><span className="eyebrow">INTEGRAÇÕES</span><h1>Conectar e manter conectado.</h1><p>As conexões autorizadas ficam disponíveis ao agente sem armazenar senhas.</p></div><button className="primary" onClick={refreshConnections}>Verificar conexões</button></header><section className="card"><Connection name="Instagram / Meta" status={metaConnected?"Conectado":"OAuth necessário"} connected={metaConnected}/><Connection name="Google Business Profile" status={googleConnected?"Conectado":"OAuth necessário"} connected={googleConnected}/><Connection name="Site Dornelas" status={siteConnected?"Conectado — leitura de catálogo ativa":"Não acessível"} connected={siteConnected}/><Connection name="Pedidos / vendas" status="Ainda não implementado"/></section><div className="notice">Meta já está conectada. A persistência usa cookie HttpOnly seguro; a conexão depende da validade do token autorizado.</div></>}
 
 function Connection({name,status,connected=false}){const isMeta=name.includes("Instagram");const isGoogle=name.includes("Google");const connect=()=>{if(isMeta)window.location.href=API+"/auth/meta";else if(isGoogle)window.location.href=API+"/auth/google";};const active=isMeta||isGoogle;return <div className="connection"><div><b>{name}</b><small>{status}</small></div><button onClick={connect} disabled={!active}>{connected?"Reconectar":(active?"Conectar":"Em breve")}</button></div>}
 
 
 function Studio({metaData,setMetaData,metaConnected,autonomy,setActions}){
- const [plan,setPlan]=useState(null),[research,setResearch]=useState(null),[site,setSite]=useState(null),[reuse,setReuse]=useState(null),[busy,setBusy]=useState(false),[generated,setGenerated]=useState({}),[approved,setApproved]=useState({}),[schedule,setSchedule]=useState({});
+ const [plan,setPlan]=useState(null),[research,setResearch]=useState(null),[site,setSite]=useState(null),[reuse,setReuse]=useState(null),[catalog,setCatalog]=useState(null),[busy,setBusy]=useState(false),[generated,setGenerated]=useState({}),[approved,setApproved]=useState({}),[schedule,setSchedule]=useState({});
  const loadInstagram=async()=>{if(metaData)return metaData;const r=await fetch(API+"/meta/data",{credentials:"include"});const d=await r.json();if(!r.ok)throw Error(d.message||d.error);setMetaData(d);return d;};
  const build=async()=>{
    setBusy(true);
@@ -124,6 +127,7 @@ function Studio({metaData,setMetaData,metaConnected,autonomy,setActions}){
    }catch(e){alert(e.message)}finally{setBusy(false)}
  };
  const researchNow=async()=>{setBusy(true);try{const r=await fetch(API+"/agent/research",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({focus:"curiosidades e assuntos que possam gerar conteúdo e vendas para Defumados Dornelas"})});const d=await r.json();if(!r.ok)throw Error(d.message||d.error);setResearch(d.research)}catch(e){alert(e.message)}finally{setBusy(false)}};
+ const readCatalog=async()=>{setBusy(true);try{const r=await fetch(API+"/site/catalog");const d=await r.json();if(!r.ok)throw Error(d.message||d.error);setCatalog(d.catalog)}catch(e){alert(e.message)}finally{setBusy(false)}};
  const analyzeSite=async()=>{setBusy(true);try{const r=await fetch(API+"/site/analyze");const d=await r.json();if(!r.ok)throw Error(d.message||d.error);setSite(d.result)}catch(e){alert(e.message)}finally{setBusy(false)}};
  const reuseNow=async()=>{setBusy(true);try{const ig=await loadInstagram();const r=await fetch(API+"/agent/reuse",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({media:ig.media||[]})});const d=await r.json();if(!r.ok)throw Error(d.message||d.error);setReuse(d.reuse)}catch(e){alert(e.message)}finally{setBusy(false)}};
  const gen=async(item,i)=>{try{
@@ -141,7 +145,8 @@ function Studio({metaData,setMetaData,metaConnected,autonomy,setActions}){
  const publish=async(item,i)=>{const asset=generated[i];if(!asset?.url)return alert("Gere o ativo primeiro.");if(!approved[i])return alert("Confirme o conteúdo antes de publicar.");if(autonomy<2)return alert("Defina autonomia 2 ou superior.");const r=await fetch(API+"/meta/publish",{method:"POST",headers:{"Content-Type":"application/json"},credentials:"include",body:JSON.stringify({imageUrl:asset.type==="IMAGE"?asset.url:undefined,videoUrl:asset.type==="REELS"?asset.url:undefined,mediaType:asset.type,caption:item.caption,autonomyLevel:autonomy})});const d=await r.json();if(!r.ok)return alert(d.message||d.error);alert("Publicado no Instagram.");setActions(a=>[{time:new Date().toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"}),type:"IA",title:"Conteúdo publicado",detail:item.headline,status:"Executado"},...a]);};
  const schedulePost=async(item,i)=>{const asset=generated[i];if(!asset?.url)return alert("Gere o ativo primeiro.");if(!approved[i])return alert("Confirme o conteúdo antes de agendar.");const scheduledFor=schedule[i];if(!scheduledFor)return alert("Escolha data e hora.");const r=await fetch(API+"/agent/schedule",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({item:{...item,imageUrl:asset.type==="IMAGE"?asset.url:null,videoUrl:asset.type==="REELS"?asset.url:null,mediaType:asset.type,approved:true,scheduledFor:new Date(scheduledFor).toISOString()}})});const d=await r.json();if(!r.ok)throw Error(d.message||d.error);alert("Postagem agendada.");};
  return <><header><div><span className="eyebrow">ESTÚDIO IA</span><h1>A IA cria. Você confirma.</h1><p>Ela pesquisa, analisa o site e Instagram, monta táticas, prepara conteúdo e entrega o pacote pronto para aprovação.</p></div><button className="primary" onClick={build} disabled={busy}>{busy?"Trabalhando…":"Criar plano de 7 dias"}</button></header>
- <section className="card form"><div className="rules"><span>Pesquisa atual</span><span>Análise do site</span><span>Instagram real</span><span>Curiosidades</span><span>Reaproveitamento</span><span>Artes IA</span></div><div className="studio-actions"><button className="secondary" onClick={researchNow} disabled={busy}>Pesquisar assuntos</button><button className="secondary" onClick={analyzeSite} disabled={busy}>Analisar site</button><button className="secondary" onClick={reuseNow} disabled={busy||!metaConnected}>Reaproveitar Instagram</button></div></section>
+ <section className="card form"><div className="rules"><span>Pesquisa atual</span><span>Análise do site</span><span>Instagram real</span><span>Curiosidades</span><span>Reaproveitamento</span><span>Artes IA</span></div><div className="studio-actions"><button className="secondary" onClick={researchNow} disabled={busy}>Pesquisar assuntos</button><button className="secondary" onClick={analyzeSite} disabled={busy}>Analisar site</button><button className="secondary" onClick={readCatalog} disabled={busy}>Ler catálogo do site</button><button className="secondary" onClick={reuseNow} disabled={busy||!metaConnected}>Reaproveitar Instagram</button></div></section>
+ {catalog&&<section className="card"><span className="eyebrow">CATÁLOGO CONECTADO</span><h3>Produtos encontrados no site</h3><pre>{JSON.stringify(catalog,null,2)}</pre></section>}
  {site&&<section className="card"><span className="eyebrow">SITE</span><h3>Diagnóstico de conversão</h3><pre>{JSON.stringify(site,null,2)}</pre></section>}
  {research&&<section className="card"><span className="eyebrow">PESQUISA</span><h3>Assuntos e curiosidades</h3><pre>{JSON.stringify(research,null,2)}</pre></section>}
  {reuse&&<section className="card"><span className="eyebrow">REAPROVEITAMENTO</span><h3>Cortes e novas versões</h3><pre>{JSON.stringify(reuse,null,2)}</pre></section>}
