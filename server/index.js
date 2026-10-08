@@ -69,6 +69,20 @@ async function fetchSiteSnapshot() {
   return {url,title,links,text};
 }
 
+let catalogCache = { at: 0, value: null };
+
+async function fetchSiteCatalog() {
+  if (catalogCache.value && Date.now() - catalogCache.at < 5 * 60 * 1000) return catalogCache.value;
+  const site = await fetchSiteSnapshot();
+  const result = await runAI({
+    instructions: "Extraia somente o catálogo comercial claramente presente no site. Retorne JSON válido {products:[{name,price,unit,category,description}]}. Não invente. Se não souber um campo, use null.",
+    input: JSON.stringify({ url: site.url, title: site.title, text: site.text, links: site.links })
+  });
+  const catalog = cleanJson(result.text);
+  catalogCache = { at: Date.now(), value: catalog };
+  return catalog;
+}
+
 function schedulerPath(){ return process.env.SCHEDULE_FILE || "generated/ai/schedule.json"; }
 
 function runFfmpeg(args){
@@ -352,22 +366,48 @@ const server = await import("node:http").then(({ createServer }) =>
         const message=String(input.message||"").trim();
         if(!message){res.statusCode=400;res.end(JSON.stringify({error:"message_required"}));return;}
         const site=await fetchSiteSnapshot().catch(()=>({url:process.env.SITE_URL||"",title:"Defumados Dornelas",text:"",links:[]}));
-        const catalog=input.catalog||null;
-        const instructions=`Você é a IA comercial da Defumados Dornelas. Seu objetivo é ajudar a aumentar vendas.
-Responda em português do Brasil, de forma prática e pronta para uso.
-Quando o usuário pedir conteúdo para Instagram, entregue uma versão pronta para copiar e colar, com:
-1) texto da publicação;
-2) CTA;
-3) hashtags somente se fizerem sentido.
-Não invente preços, produtos, promoções, estoque ou fatos. Use o catálogo/site fornecido quando disponível.
-Se o pedido for sobre estratégia, dê ações concretas e priorizadas.
-Não diga que publicou no Instagram: você está apenas preparando o conteúdo para o usuário copiar e publicar manualmente.`;
+        let catalog=input.catalog||null;
+        if(!catalog){
+          try { catalog=await fetchSiteCatalog(); } catch {}
+        }
+        const instagram=input.instagram||null;
+        const instructions=`Você é a IA comercial da Defumados Dornelas. Seu único objetivo é aumentar vendas.
+Você funciona mesmo quando o Instagram não está conectado. Nesse caso, use o site, catálogo, tendências públicas e prints enviados pelo usuário; nunca finja que leu dados privados da Meta.
+Responda em português do Brasil, de forma prática e pronta para execução.
+Quando pedirem Instagram, entregue conteúdo pronto para copiar e colar: gancho, legenda, CTA e hashtags quando fizer sentido.
+Quando pedirem Reels, entregue roteiro por cenas, texto na tela, fala/narração, CTA e duração aproximada.
+Quando pedirem estratégia, escolha uma ação principal e explique por que ela vem primeiro.
+Use produtos e preços somente quando estiverem presentes no catálogo/site ou forem fornecidos pelo usuário. Nunca invente estoque, preço, promoção, métrica ou resultado.
+Se receber um print, analise apenas o que estiver visível e deixe claro qualquer dado que não possa ser confirmado.
+Você pode propor tendências usando sinais públicos, mas não chame isso de tendência do Instagram se não houver dado do Instagram.
+Não diga que publicou. Quando a publicação automática estiver disponível, diga apenas que está pronta para publicação após autorização.`;
+        const payload={business:"Defumados Dornelas",message,site:{url:site.url,title:site.title,text:site.text?.slice(0,9000)},catalog,instagram,history:Array.isArray(input.history)?input.history.slice(-10):[]};
         const aiInput=input.imageDataUrl
-          ? [{role:"user",content:[{type:"input_text",text:JSON.stringify({business:"Defumados Dornelas",message,site:{url:site.url,title:site.title,text:site.text?.slice(0,9000)},catalog,history:Array.isArray(input.history)?input.history.slice(-10):[]})},{type:"input_image",image_url:input.imageDataUrl}]}]
-          : JSON.stringify({business:"Defumados Dornelas",message,site:{url:site.url,title:site.title,text:site.text?.slice(0,9000)},catalog,history:Array.isArray(input.history)?input.history.slice(-10):[]});
+          ? [{role:"user",content:[{type:"input_text",text:JSON.stringify(payload)},{type:"input_image",image_url:input.imageDataUrl}]}]
+          : JSON.stringify(payload);
         const result=await runAI({instructions,input:aiInput});
-        res.end(JSON.stringify({ok:true,ai:true,model:result.model,response:result.text,responseId:result.responseId}));
+        res.end(JSON.stringify({ok:true,ai:true,model:result.model,response:result.text,responseId:result.responseId,mode:instagram?"instagram_data":"sales_mode"}));
       } catch(error) { res.statusCode=502; res.end(JSON.stringify({error:"ai_chat_failed",message:error.message})); }
+      return;
+    }
+
+    if (req.method === "GET" && req.url === "/agent/sales-kit") {
+      try {
+        const site=await fetchSiteSnapshot().catch(()=>({url:process.env.SITE_URL||"",title:"Defumados Dornelas",text:"",links:[]}));
+        let catalog=null;
+        try { catalog=await fetchSiteCatalog(); } catch {}
+        const result=await runAI({
+          instructions:`Crie um pacote comercial imediatamente utilizável pela Defumados Dornelas.
+Objetivo: gerar pedidos sem depender de Instagram conectado.
+Retorne JSON válido:
+{posts:[{format,hook,caption,cta}],reel:{hook,scenes,caption,cta},story:{frames,cta},priorityAction,reason}
+Crie 3 posts (venda direta, prova/bastidor e educação), 1 Reel e 1 sequência de Stories.
+Use somente produtos/preços claramente presentes no catálogo fornecido. Se faltar preço, não invente.
+Não invente estoque, avaliações, resultados ou promoções.`,
+          input:JSON.stringify({business:"Defumados Dornelas",site:{url:site.url,title:site.title,text:site.text?.slice(0,12000)},catalog})
+        });
+        res.end(JSON.stringify({ok:true,mode:"sales_mode",package:cleanJson(result.text),model:result.model}));
+      } catch(error) { res.statusCode=502; res.end(JSON.stringify({error:"sales_kit_failed",message:error.message})); }
       return;
     }
 
