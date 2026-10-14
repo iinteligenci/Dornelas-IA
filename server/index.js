@@ -11,6 +11,25 @@ import { publishPublicAsset, githubJsonGet, githubJsonPut } from "./integrations
 import { SYSTEM_PROMPT, CAMPAIGN_PROMPT, CONTENT_PLAN_PROMPT, RESEARCH_PROMPT, SITE_ANALYSIS_PROMPT, REUSE_PROMPT } from "./agent/ai-prompts.js";
 import { normalizeKnowledge, knowledgeInstructions } from "./data/knowledge.js";
 
+function adminSessionToken() {
+  const payload = Buffer.from(JSON.stringify({ exp: Date.now() + 8 * 60 * 60 * 1000 })).toString("base64url");
+  const signature = crypto.createHmac("sha256", process.env.ADMIN_SESSION_SECRET).update(payload).digest("base64url");
+  return payload + "." + signature;
+}
+function validAdminSession(req) {
+  const secret = process.env.ADMIN_SESSION_SECRET;
+  if (!secret) return false;
+  const token = readCookie(req, "dornelas_admin");
+  if (!token) return false;
+  const [payload, signature] = token.split(".");
+  if (!payload || !signature) return false;
+  const expected = crypto.createHmac("sha256", secret).update(payload).digest();
+  let actual;
+  try { actual = Buffer.from(signature, "base64url"); } catch { return false; }
+  if (actual.length !== expected.length || !crypto.timingSafeEqual(actual, expected)) return false;
+  try { return JSON.parse(Buffer.from(payload, "base64url").toString("utf8")).exp > Date.now(); } catch { return false; }
+}
+
 function cookieToken(secret, value) {
   const key = crypto.createHash("sha256").update(String(secret || "")).digest();
   const iv = crypto.randomBytes(12);
@@ -256,7 +275,39 @@ const server = await import("node:http").then(({ createServer }) =>
     res.setHeader("Access-Control-Allow-Credentials", "true");
     res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
     res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+    res.setHeader("Vary", "Origin");
     if (req.method === "OPTIONS") { res.statusCode = 204; res.end(); return; }
+
+    const requestUrl = new URL(req.url, "http://localhost");
+    const origin = req.headers.origin;
+    const allowedOrigin = "https://iinteligenci.github.io";
+    if (origin && origin !== allowedOrigin) { res.statusCode = 403; res.end(JSON.stringify({ error: "origin_not_allowed" })); return; }
+
+    if (req.method === "POST" && requestUrl.pathname === "/auth/login") {
+      const body = JSON.parse(await readBody(req).catch(() => "{}") || "{}");
+      const configuredPassword = process.env.ADMIN_PASSWORD;
+      if (!configuredPassword || !process.env.ADMIN_SESSION_SECRET) {
+        res.statusCode = 503; res.end(JSON.stringify({ error: "admin_auth_not_configured", message: "Configure ADMIN_PASSWORD e ADMIN_SESSION_SECRET no Render." })); return;
+      }
+      const submitted = Buffer.from(String(body.password || ""));
+      const expected = Buffer.from(configuredPassword);
+      if (submitted.length !== expected.length || !crypto.timingSafeEqual(submitted, expected)) {
+        res.statusCode = 401; res.end(JSON.stringify({ error: "invalid_password", message: "Senha incorreta." })); return;
+      }
+      res.setHeader("Set-Cookie", "dornelas_admin=" + adminSessionToken() + "; Path=/; Max-Age=28800; HttpOnly; Secure; SameSite=None");
+      res.end(JSON.stringify({ ok: true, expiresIn: 28800 })); return;
+    }
+
+    if (req.method === "POST" && requestUrl.pathname === "/auth/logout") {
+      res.setHeader("Set-Cookie", "dornelas_admin=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=None");
+      res.end(JSON.stringify({ ok: true })); return;
+    }
+
+    const protectedRoute = (req.method !== "GET" && !requestUrl.pathname.startsWith("/auth/")) ||
+      (req.method === "GET" && (requestUrl.pathname.startsWith("/agent/") || requestUrl.pathname === "/google/data" || requestUrl.pathname === "/meta/data"));
+    if (protectedRoute && !validAdminSession(req)) {
+      res.statusCode = 401; res.end(JSON.stringify({ error: "admin_login_required", message: "Entre com a senha administrativa para usar os recursos protegidos." })); return;
+    }
 
     if (req.method === "GET" && req.url === "/auth/meta") {
       const state = createOAuthState(); oauthStates.add(state);
