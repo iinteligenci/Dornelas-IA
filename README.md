@@ -45,3 +45,14 @@ Variáveis necessárias:
 - `CONTENT_ASSET_REPO`: repositório onde imagens/ativos públicos são salvos; atualmente o padrão permanece `iinteligenci/dorn`.
 
 Depois de configurar as variáveis no Render, faça um deploy e valide `/health`, uma conversa de IA e a leitura do catálogo. A existência da chave não comprova que o modelo ou a conta tenham acesso; teste as chamadas reais.
+
+
+## Proteção administrativa do backend
+
+As rotas de IA e operações que alteram dados exigem uma sessão administrativa via cookie HttpOnly, Secure e SameSite=None. O frontend pede a senha quando uma sessão ainda não existe; a senha não deve ser colocada no código do site.
+
+No Render, configure:
+- `ADMIN_PASSWORD`: crie uma senha longa e exclusiva para a Dornelas IA.
+- `ADMIN_SESSION_SECRET`: segredo aleatório forte (o Render pode gerar um valor ao aplicar o Blueprint).
+
+Após configurar as variáveis, publique o serviço e valide o login. A sessão expira após 8 horas. Não habilite publicação automática antes de testar autenticação, cookies entre GitHub Pages e Render e as rotas de publicação. A configuração no repositório não altera as variáveis de um serviço Render que já existe até que você aplique/atualize o Blueprint.
