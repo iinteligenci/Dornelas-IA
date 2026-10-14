@@ -5,7 +5,7 @@ import "./styles.css";
 const API="https://dornelas-ia.onrender.com";
 const REQUEST_TIMEOUT=25000;
 
-async function api(path,{method="GET",body,timeout=REQUEST_TIMEOUT,signal}={}){
+async function api(path,{method="GET",body,timeout=REQUEST_TIMEOUT,signal,_retried=false}={}){
  const controller=new AbortController();
  const timer=setTimeout(()=>controller.abort(),timeout);
  try{
@@ -19,6 +19,15 @@ async function api(path,{method="GET",body,timeout=REQUEST_TIMEOUT,signal}={}){
   const text=await response.text();
   let data={};
   try{data=text?JSON.parse(text):{}}catch{data={message:text||"Resposta inválida do servidor."}}
+  if(response.status===401&&data.error==="admin_login_required"&&!_retried){
+   const password=window.prompt("Digite a senha administrativa da Dornelas IA:");
+   if(password===null)throw new Error("Login cancelado.");
+   const login=await fetch(API+"/auth/login",{method:"POST",credentials:"include",headers:{"Content-Type":"application/json"},body:JSON.stringify({password})});
+   const loginText=await login.text();let loginData={};try{loginData=loginText?JSON.parse(loginText):{}}catch{}
+   if(!login.ok)throw new Error(loginData.message||"Não foi possível entrar. Verifique a senha e a configuração do servidor.");
+   clearTimeout(timer);
+   return api(path,{method,body,timeout,signal,_retried:true});
+  }
   if(!response.ok)throw new Error(data.message||data.error||"Falha na comunicação com o servidor.");
   return data;
  }catch(error){
