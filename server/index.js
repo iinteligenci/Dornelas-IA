@@ -409,7 +409,8 @@ const server = await import("node:http").then(({ createServer }) =>
       if (!code) { res.statusCode = 400; res.end(JSON.stringify({ error: "missing_code" })); return; }
       try {
         const token = await exchangeGoogleCode({ clientId: process.env.GOOGLE_CLIENT_ID, clientSecret: process.env.GOOGLE_CLIENT_SECRET, redirectUri: process.env.GOOGLE_REDIRECT_URI, code });
-        googleConnection = { accessToken: token?.access_token || null, refreshToken: token?.refresh_token || null, expiresAt: token?.expires_in ? Date.now()+Number(token.expires_in)*1000 : null, connected: Boolean(token?.access_token || token?.refresh_token) };\n        await persistGoogleConnection();
+        googleConnection = { accessToken: token?.access_token || null, refreshToken: token?.refresh_token || null, expiresAt: token?.expires_in ? Date.now()+Number(token.expires_in)*1000 : null, connected: Boolean(token?.access_token || token?.refresh_token) };
+        await persistGoogleConnection();
         if (googleConnection.refreshToken) {
           const googleCookie = cookieToken(process.env.GOOGLE_CLIENT_SECRET, JSON.stringify(googleConnection));
           res.setHeader("Set-Cookie", "dornelas_google=" + encodeURIComponent(googleCookie) + "; Path=/; Max-Age=31536000; HttpOnly; Secure; SameSite=None");
@@ -463,7 +464,8 @@ const server = await import("node:http").then(({ createServer }) =>
     }
 
     if (req.method === "GET" && req.url === "/google/status") {
-      await loadPersistedGoogleConnection();\n      const saved = readCookie(req, "dornelas_google");
+      await loadPersistedGoogleConnection();
+      const saved = readCookie(req, "dornelas_google");
       if (saved && !googleConnection) {
         const parsed = decryptCookie(process.env.GOOGLE_CLIENT_SECRET, saved);
         if (parsed) { try { googleConnection = JSON.parse(parsed); } catch {} }
