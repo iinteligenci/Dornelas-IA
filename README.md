@@ -1,47 +1,34 @@
-# Dornelas IA
+# Dornelas IA — base estática
 
-Sistema independente para apoiar marketing, vendas e operações dos Defumados Dornelas.
+Painel operacional inicial dos Defumados Dornelas, preparado para funcionar no GitHub Pages sem backend, sem chaves de API e sem IA por enquanto.
 
-## Objetivo desta base
+## Funcionalidades disponíveis no navegador
 
-Manter o código desacoplado de provedores de hospedagem e de IA para que a arquitetura possa ser definida antes da escolha da infraestrutura.
+- Cadastro local de produtos e preços.
+- Criação de campanhas e links com parâmetros UTM.
+- Registro manual de cliques, conversas, pedidos, faturamento e investimento.
+- Rascunhos de conteúdo por modelos fixos, sem geração por IA.
+- Agenda manual de conteúdo.
+- Exportação e importação de backup JSON.
 
-## Princípios
+## Publicação pelo GitHub
 
-- O site comercial da Dornelas é um projeto separado.
-- Integrações externas ficam isoladas em módulos próprios.
-- Credenciais e tokens não entram no repositório.
-- Ações sensíveis exigem validação e, quando aplicável, aprovação humana.
-- Decisões e ações automatizadas devem ter rastreabilidade.
-- Nenhuma publicação ou alteração externa deve ser presumida como concluída sem confirmação.
+O workflow `.github/workflows/deploy-pages.yml` constrói o frontend e publica a pasta `dist` no GitHub Pages quando a branch `main` recebe alterações. O caminho de entrada usa URL relativa para funcionar no endereço de projeto do GitHub Pages.
 
-## Módulos atuais
+## Limitações importantes
 
-- Painel web em React.
-- API/backend em Node.js.
-- Agente comercial e prompts.
-- Conectores para Meta/Instagram e Google.
-- Camada de IA baseada em API compatível com Chat Completions, configurada por ambiente.
-- Integração opcional com GitHub para persistência de dados e ativos.
-- Aquisição: links UTM e registro manual de campanhas, conversas, pedidos, faturamento e investimento.
+- Os dados são armazenados em `localStorage` no navegador atual; não sincronizam entre aparelhos nem usuários.
+- O backup JSON permite transferir os dados manualmente.
+- Não há coleta automática de visitas, integração com Instagram/Meta, publicação automática ou IA.
+- Não coloque credenciais, senhas ou chaves secretas no frontend ou neste repositório.
+- O backend antigo permanece no repositório como código de referência, mas não é necessário para esta versão estática.
 
-## Configuração local
+## Desenvolvimento
 
-1. Instale uma versão atual do Node.js.
-2. Instale as dependências do frontend com `npm install`.
-3. Instale as dependências do backend em `server` com `npm install`.
-4. Copie `.env.example` para `.env` e preencha apenas os valores necessários ao ambiente local.
-5. Execute o frontend com `npm run dev`.
-6. Execute o backend com o comando `npm start` dentro de `server`; ajuste os scripts conforme a arquitetura definida.
+```bash
+npm install
+npm run dev
+npm run build
+```
 
-A camada de IA requer `AI_API_BASE_URL`, `AI_API_KEY` e `AI_MODEL` de um provedor compatível. Nenhum provedor específico é selecionado por padrão. A geração de imagens depende do suporte do provedor escolhido.
-
-## Aquisição e conversão
-
-A aba **Aquisição** organiza campanhas por canal, gera links com parâmetros UTM e permite registrar manualmente cliques, conversas, pedidos, faturamento e investimento, além de exportar CSV.
-
-**Limitação atual:** esses registros ficam no armazenamento local do navegador/aparelho. Não há sincronização entre dispositivos nem coleta automática de visitas ou pedidos. Os links UTM identificam a campanha no endereço, mas a medição automática exige instrumentação adicional no site e uma camada de armazenamento segura. Não registre dados pessoais de clientes.
-
-## Próxima etapa
-
-Definir arquitetura de execução, banco de dados, autenticação, observabilidade e estratégia de implantação antes de conectar um novo provedor ou ambiente de hospedagem.
+Esta versão é a base simples para validar o fluxo operacional antes de escolher banco de dados, backend ou integrações que exijam credenciais.
