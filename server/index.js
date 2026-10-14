@@ -784,7 +784,7 @@ Não invente estoque, avaliações, resultados ou promoções.`,
       const configured=[
         ["META_CLIENT_ID","Meta OAuth"],["META_CLIENT_SECRET","Meta OAuth secret"],["META_CONFIG_ID","Meta Login configuration"],
         ["META_REDIRECT_URI","Meta callback"],["GOOGLE_CLIENT_ID","Google OAuth"],["GOOGLE_CLIENT_SECRET","Google OAuth secret"],["GOOGLE_REDIRECT_URI","Google callback"],
-        ["LOVABLE_API_KEY","IA"],["AI_MODEL","modelo IA"],["AI_IMAGE_MODEL","geração de imagem"],["GITHUB_TOKEN","armazenamento de dados/ativos"],
+        ["AI_API_KEY","IA"],["AI_MODEL","modelo IA"],["AI_IMAGE_MODEL","geração de imagem"],["GITHUB_TOKEN","armazenamento de dados/ativos"],
         ["CONTENT_ASSET_REPO","repositório de dados/ativos"],["CONTENT_ASSET_BRANCH","branch de dados"],["SITE_URL","site/catalogo"],["SCHEDULE_FILE","agenda"],
         ["META_PERSIST_FILE","persistência Meta"],["SCHEDULER_SECRET","scheduler"],["DORNELAS_SCHEDULER_SECRET","scheduler alternativo"],
         ["INSTAGRAM_CLIENT_ID","Instagram Login"],["INSTAGRAM_CLIENT_SECRET","Instagram Login secret"],["INSTAGRAM_REDIRECT_URI","Instagram callback"]
@@ -908,7 +908,7 @@ Cada quickWin deve ser executável e verificável. Não invente dados. Se não h
         const google=await safe("google_business",async()=>await getGoogleBusinessData());
         const trends=await safe("public_trends",getPublicTrends);
         const schedule=await safe("schedule",async()=>{const s=await githubJsonGet(schedulerPath());return Array.isArray(s.content)?s.content:[]})||[];
-        const config=await safe("config",async()=>{const x={};for(const k of ["META_CLIENT_ID","META_CLIENT_SECRET","META_CONFIG_ID","META_REDIRECT_URI","GOOGLE_CLIENT_ID","GOOGLE_CLIENT_SECRET","GOOGLE_REDIRECT_URI","LOVABLE_API_KEY","LOVABLE_AI_GATEWAY_URL","AI_MODEL","AI_IMAGE_MODEL","GITHUB_TOKEN","CONTENT_ASSET_REPO","CONTENT_ASSET_BRANCH","SITE_URL","SCHEDULE_FILE","META_PERSIST_FILE","SCHEDULER_SECRET","DORNELAS_SCHEDULER_SECRET","INSTAGRAM_CLIENT_ID","INSTAGRAM_CLIENT_SECRET","INSTAGRAM_REDIRECT_URI"])x[k]=Boolean(process.env[k]);return x;});
+        const config=await safe("config",async()=>{const x={};for(const k of ["META_CLIENT_ID","META_CLIENT_SECRET","META_CONFIG_ID","META_REDIRECT_URI","GOOGLE_CLIENT_ID","GOOGLE_CLIENT_SECRET","GOOGLE_REDIRECT_URI","AI_API_KEY","AI_API_BASE_URL","AI_MODEL","AI_IMAGE_MODEL","GITHUB_TOKEN","CONTENT_ASSET_REPO","CONTENT_ASSET_BRANCH","SITE_URL","SCHEDULE_FILE","META_PERSIST_FILE","SCHEDULER_SECRET","DORNELAS_SCHEDULER_SECRET","INSTAGRAM_CLIENT_ID","INSTAGRAM_CLIENT_SECRET","INSTAGRAM_REDIRECT_URI"])x[k]=Boolean(process.env[k]);return x;});
         const knowledge=normalizeKnowledge({site,catalog,instagram,google,trends,schedule,config});
         let aiAnalysis=null;
         try{const ai=await runAI({instructions:knowledgeInstructions(),input:JSON.stringify(knowledge).slice(0,45000)});aiAnalysis=cleanJson(ai.text);}catch(error){errors.push({source:"knowledge_ai",error:error.message});}
@@ -946,13 +946,13 @@ Cada quickWin deve ser executável e verificável. Não invente dados. Se não h
 
     if (req.method === "POST" && req.url === "/agent/self-fix") {
       try{
-        const before=await fetch("https://dornelas-ia.onrender.com/health").then(r=>r.json()).catch(()=>({}));
+        const before=await fetch((process.env.API_BASE_URL || "http://127.0.0.1:" + port) + "/health").then(r=>r.json()).catch(()=>({}));
         const current=await githubJsonGet(schedulerPath());
         let list=Array.isArray(current.content)?current.content:[];
         const valid=list.filter(x=>x&&x.id&&x.caption&&x.scheduledFor&&x.status);
         let changed=valid.length!==list.length;
         if(!current.exists||changed) await githubJsonPut(schedulerPath(),valid,current.sha||undefined);
-        const auditReq=await fetch("https://dornelas-ia.onrender.com/agent/self-audit",{method:"POST",headers:{"Content-Type":"application/json"},body:"{}"});
+        const auditReq=await fetch((process.env.API_BASE_URL || "http://127.0.0.1:" + port) + "/agent/self-audit",{method:"POST",headers:{"Content-Type":"application/json"},body:"{}"});
         const audit=await auditReq.json();
         const state={ok:audit.ok,applied:["normalização da agenda","revalidação das integrações","registro do diagnóstico"],changed,at:new Date().toISOString(),health:before};
         try{const saved=await githubJsonGet("generated/ai/system-state.json");await githubJsonPut("generated/ai/system-state.json",state,saved.sha||undefined)}catch{}
@@ -962,7 +962,7 @@ Cada quickWin deve ser executável e verificável. Não invente dados. Se não h
     }
 
     if (req.method === "GET" && req.url === "/health") {
-      res.end(JSON.stringify({ ok: true, service: "dornelas-ia-agent", aiConfigured:Boolean(process.env.LOVABLE_API_KEY), imageConfigured:Boolean(process.env.LOVABLE_API_KEY && process.env.AI_IMAGE_MODEL), assetStorageConfigured:Boolean(process.env.GITHUB_TOKEN), schedulerConfigured:Boolean(process.env.GITHUB_TOKEN && (process.env.SCHEDULER_SECRET||process.env.DORNELAS_SCHEDULER_SECRET)) }));
+      res.end(JSON.stringify({ ok: true, service: "dornelas-ia-agent", aiConfigured:Boolean(process.env.AI_API_BASE_URL && process.env.AI_API_KEY && process.env.AI_MODEL), imageConfigured:Boolean(process.env.AI_API_BASE_URL && process.env.AI_API_KEY && process.env.AI_IMAGE_MODEL), assetStorageConfigured:Boolean(process.env.GITHUB_TOKEN), schedulerConfigured:Boolean(process.env.GITHUB_TOKEN && (process.env.SCHEDULER_SECRET||process.env.DORNELAS_SCHEDULER_SECRET)) }));
       return;
     }
 
