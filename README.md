@@ -24,3 +24,9 @@ Sistema separado do site dos Defumados Dornelas para operar marketing, vendas e 
 - `packages/ai`: orquestração do agente
 
 > Nenhuma credencial deve ser commitada neste repositório. Use variáveis de ambiente/secret manager.
+
+
+## Aquisição e conversão
+A aba **Aquisição** organiza campanhas por canal, gera links com parâmetros UTM e permite registrar manualmente cliques observados, conversas, pedidos, faturamento e investimento, além de exportar CSV.
+
+**Limitação atual:** os registros dessa aba ficam no armazenamento local do navegador/aparelho. Não há sincronização entre dispositivos e os números não são coletados automaticamente pelo site ou pelo WhatsApp. Os links UTM identificam a campanha no endereço, mas a medição automática exige instrumentação adicional no site e uma camada de armazenamento segura. Use números observados; não insira dados pessoais de clientes.
