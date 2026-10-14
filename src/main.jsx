@@ -1,372 +1,51 @@
-import React,{useEffect,useState} from "react";
+import React,{useEffect,useMemo,useState} from "react";
 import {createRoot} from "react-dom/client";
 import "./styles.css";
-
-const API="https://dornelas-ia.onrender.com";
-const REQUEST_TIMEOUT=25000;
-
-async function api(path,{method="GET",body,timeout=REQUEST_TIMEOUT,signal}={}){
- const controller=new AbortController();
- const timer=setTimeout(()=>controller.abort(),timeout);
- try{
-  const response=await fetch(API+path,{
-   method,
-   credentials:"include",
-   headers:body!==undefined?{"Content-Type":"application/json"}:undefined,
-   body:body!==undefined?JSON.stringify(body):undefined,
-   signal:signal||controller.signal
-  });
-  const text=await response.text();
-  let data={};
-  try{data=text?JSON.parse(text):{}}catch{data={message:text||"Resposta inválida do servidor."}}
-  if(!response.ok)throw new Error(data.message||data.error||"Falha na comunicação com o servidor.");
-  return data;
- }catch(error){
-  if(error?.name==="AbortError")throw new Error("O servidor demorou demais para responder. Tente novamente.");
-  throw error;
- }finally{clearTimeout(timer)}
-}
-
-function copyText(text){
- if(navigator.clipboard?.writeText)return navigator.clipboard.writeText(text);
- const area=document.createElement("textarea");
- area.value=text;area.style.position="fixed";area.style.opacity="0";
- document.body.appendChild(area);area.select();document.execCommand("copy");area.remove();
- return Promise.resolve();
-}
-
-class ErrorBoundary extends React.Component{
- constructor(props){super(props);this.state={error:null}}
- static getDerivedStateFromError(error){return {error}}
- render(){
-  if(this.state.error){
-   return <div className="app"><main className="page"><section className="card">
-    <span className="eyebrow">DORNELAS IA</span><h1>O sistema encontrou um erro.</h1>
-    <p className="muted">A aplicação foi protegida para não ficar em uma tela vazia.</p>
-    <pre>{this.state.error?.message||"Erro inesperado"}</pre>
-    <button className="primary" onClick={()=>window.location.reload()}>Recarregar</button>
-   </section></main></div>
-  }
-  return this.props.children
- }
-}
-
+const STORE="dornelas-static-v1";
+const defaults=[{id:"p1",name:"Bacon artesanal",price:"",stock:"",category:"Defumados"},{id:"p2",name:"Linguiça defumada",price:"",stock:"",category:"Defumados"},{id:"p3",name:"Kit Feijoada",price:"115",stock:"",category:"Kits"}];
+function load(){try{const d=JSON.parse(localStorage.getItem(STORE)||"{}");return{products:Array.isArray(d.products)?d.products:defaults,campaigns:Array.isArray(d.campaigns)?d.campaigns:[],drafts:Array.isArray(d.drafts)?d.drafts:[],agenda:Array.isArray(d.agenda)?d.agenda:[]}}catch{return{products:defaults,campaigns:[],drafts:[],agenda:[]}}}
+function uid(){return Date.now().toString(36)+Math.random().toString(36).slice(2,7)}
+function slug(s){return String(s||"campanha").normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase().replace(/[^a-z0-9]+/g,"_").replace(/^_|_$/g,"")}
+function money(n){return Number(n||0).toLocaleString("pt-BR",{style:"currency",currency:"BRL"})}
 function App(){
- const [tab,setTabState]=useState(()=>sessionStorage.getItem("dornelas-tab")||"central");
- const [chatPrompt,setChatPrompt]=useState("");
- const [meta,setMeta]=useState(null),[site,setSite]=useState(null),[health,setHealth]=useState(null);
- const [audit,setAudit]=useState(null),[loading,setLoading]=useState(false),[message,setMessage]=useState("");
-
- const setTab=tabName=>{setTabState(tabName);sessionStorage.setItem("dornelas-tab",tabName);window.scrollTo({top:0,behavior:"smooth"})};
- const openChat=prompt=>{setChatPrompt(prompt||"");setTab("chat")};
-
- const refresh=async(force=false)=>{
-  if(loading&&!force)return;
-  setLoading(true);setMessage("");
-  const results=await Promise.allSettled([api("/health"),api("/meta/status"),api("/site/status")]);
-  const [h,m,s]=results;
-  if(h.status==="fulfilled")setHealth(h.value);else setMessage("IA/servidor: "+h.reason.message);
-  if(m.status==="fulfilled")setMeta(m.value);else setMessage(prev=>prev?prev+" · Meta: "+m.reason.message:"Meta: "+m.reason.message);
-  if(s.status==="fulfilled")setSite(s.value);else setMessage(prev=>prev?prev+" · Site: "+s.reason.message:"Site: "+s.reason.message);
-  setLoading(false);
- };
- useEffect(()=>{refresh()},[]);
-
- const runAudit=async()=>{
-  if(loading)return;
-  setLoading(true);setMessage("");
-  try{setAudit(await api("/agent/self-audit",{method:"POST",body:{}}));}
-  catch(e){setMessage(e.message)}
-  finally{setLoading(false)}
- };
- const repair=async()=>{
-  if(loading)return;
-  setLoading(true);setMessage("");
-  try{
-   const d=await api("/agent/self-fix",{method:"POST",timeout:60000,body:{}});
-   setAudit(d.audit);setMessage(d.message||"Correções seguras aplicadas.");
-   await refresh(true);
-  }catch(e){setMessage("Falha na autocorreção: "+e.message)}
-  finally{setLoading(false)}
- };
- const connect=()=>window.open(API+"/auth/meta","_blank","noopener,noreferrer");
- const instagramReady=Boolean(meta?.targetAvailable);
-
+ const [data,setData]=useState(load),[tab,setTab]=useState(()=>sessionStorage.getItem("dornelas-tab")||"central"),[notice,setNotice]=useState("");
+ const [product,setProduct]=useState({name:"",price:"",stock:"",category:"Defumados"}),[campaign,setCampaign]=useState({name:"",channel:"Instagram",destination:"https://iinteligenci.github.io/Site-dornelas/"}),[draft,setDraft]=useState({product:"Bacon artesanal",format:"Post",goal:"Gerar pedidos"}),[agenda,setAgenda]=useState({title:"",date:"",channel:"Instagram",status:"Planejado"});
+ useEffect(()=>{localStorage.setItem(STORE,JSON.stringify(data))},[data]);
+ const go=t=>{setTab(t);sessionStorage.setItem("dornelas-tab",t);setNotice("");window.scrollTo({top:0,behavior:"smooth"})};
+ const update=(key,fn)=>setData(d=>({...d,[key]:fn(d[key])}));
+ const remove=(key,itemId)=>{if(!window.confirm("Excluir este registro?"))return;update(key,v=>v.filter(x=>x.id!==itemId));setNotice("Registro excluído.")};
+ const backup=()=>{const b=new Blob([JSON.stringify({...data,exportedAt:new Date().toISOString()},null,2)],{type:"application/json"}),u=URL.createObjectURL(b),a=document.createElement("a");a.href=u;a.download="dornelas-ia-backup.json";a.click();URL.revokeObjectURL(u)};
+ const restore=e=>{const f=e.target.files&&e.target.files[0];if(!f)return;const r=new FileReader();r.onload=()=>{try{const v=JSON.parse(r.result);if(!Array.isArray(v.products)||!Array.isArray(v.campaigns)||!Array.isArray(v.drafts)||!Array.isArray(v.agenda))throw Error();setData({products:v.products,campaigns:v.campaigns,drafts:v.drafts,agenda:v.agenda});setNotice("Backup restaurado.")}catch{setNotice("Arquivo de backup inválido.")}};r.readAsText(f);e.target.value=""};
+ const addProduct=()=>{if(!product.name.trim()){setNotice("Informe o nome do produto.");return}update("products",v=>[{...product,id:uid()},...v]);setProduct({name:"",price:"",stock:"",category:"Defumados"});setNotice("Produto salvo neste navegador.")};
+ const addCampaign=()=>{if(!campaign.name.trim()){setNotice("Informe o nome da campanha.");return}try{const u=new URL(campaign.destination);if(!["https:","http:"].includes(u.protocol))throw Error();update("campaigns",v=>[{...campaign,id:uid(),slug:slug(campaign.name),createdAt:new Date().toISOString(),clicks:0,leads:0,orders:0,revenue:0,spend:0},...v]);setCampaign(v=>({...v,name:""}));setNotice("Campanha criada.")}catch{setNotice("Informe um link de destino válido.")}};
+ const link=c=>{try{const u=new URL(c.destination);u.searchParams.set("utm_source",slug(c.channel));u.searchParams.set("utm_medium","social");u.searchParams.set("utm_campaign",c.slug);return u.toString()}catch{return c.destination}};
+ const addDraft=()=>{const p=data.products.find(x=>x.name===draft.product),price=p&&p.price?" por "+money(p.price):"",name=draft.product;let text="";
+  if(draft.format==="Post")text="🔥 Conheça "+name+" da Defumados Dornelas!"+price+"\n\nSabor artesanal e aquele toque de defumação que faz diferença.\n\n📲 Chame a gente e consulte disponibilidade.\n\n#DefumadosDornelas #DefumadosArtesanais";
+  if(draft.format==="Stories")text="Hoje é dia de "+name+"! 🔥\n\nQuer colocar na sua mesa?"+price+"\n\nResponda este Story ou chame no WhatsApp para consultar disponibilidade.";
+  if(draft.format==="Reel")text="ROTEIRO DE REEL — "+name+"\n\nCena 1 (0–3s): close real do produto. Texto: “Seu próximo favorito pode estar aqui”.\nCena 2: mostrar textura e preparo real.\nCena 3: produto servido.\nCena 4: embalagem e marca.\n\nLegenda: "+name+" da Defumados Dornelas."+price+". Consulte disponibilidade e faça seu pedido pelo link do perfil.\n\nConfirme preço e estoque antes de publicar.";
+  if(draft.format==="WhatsApp")text="Oi! Passando para apresentar "+name+" da Defumados Dornelas."+price+"\n\nSe tiver interesse, me chama que confirmo disponibilidade e opções de entrega. 🔥";
+  update("drafts",v=>[{id:uid(),product:name,format:draft.format,goal:draft.goal,text,createdAt:new Date().toISOString()},...v]);setNotice("Rascunho criado por modelo fixo. Revise as informações antes de publicar.")};
+ const addAgenda=()=>{if(!agenda.title.trim()||!agenda.date){setNotice("Preencha o título e a data.");return}update("agenda",v=>[{...agenda,id:uid()},...v].sort((a,b)=>a.date.localeCompare(b.date)));setAgenda(v=>({...v,title:""}));setNotice("Item adicionado à agenda local.")};
+ const totals=useMemo(()=>({orders:data.campaigns.reduce((s,c)=>s+Number(c.orders||0),0),revenue:data.campaigns.reduce((s,c)=>s+Number(c.revenue||0),0)}),[data]);
  return <div className="app">
-  <header className="topbar">
-   <div className="brand"><div className="logo">D</div><div><b>Dornelas IA</b><small>Agente de vendas</small></div></div>
-   <div className="top-actions">
-    <span className={"status "+(health==null?"warn":health.aiConfigured?"ok":"bad")}>IA {health==null?"…":health.aiConfigured?"OK":"OFF"}</span>
-    <span className={"status "+(instagramReady?"ok":"warn")}>Instagram {instagramReady?"pronto":meta?.connected?"Meta conectada":"pendente"}</span>
-    <button className="iconbtn" onClick={refresh} disabled={loading} aria-label="Atualizar">{loading?"…":"↻"}</button>
-   </div>
-  </header>
-  <main>
-   {tab==="central"&&<Central meta={meta} site={site} health={health} audit={audit} loading={loading} connect={connect} runAudit={runAudit} repair={repair} message={message} openChat={openChat} setTab={setTab}/>}
-   {tab==="aquisicao"&&<Acquisition openChat={openChat}/>}
-   {tab==="chat"&&<Chat initialPrompt={chatPrompt}/>}
-   {tab==="conteudo"&&<Content setTab={setTab} openChat={openChat}/>}
-   {tab==="agenda"&&<Agenda openChat={openChat}/>}
-   {tab==="config"&&<Config meta={meta} connect={connect} refresh={refresh}/>}
-  </main>
-  <nav className="bottom-nav">
-   {[["central","⌂","Central"],["aquisicao","↗","Aquisição"],["chat","✦","IA"],["conteudo","▣","Conteúdo"],["agenda","◷","Agenda"],["config","⚙","Config."]].map(([id,icon,label])=>
-    <button key={id} className={tab===id?"active":""} onClick={()=>setTab(id)}>{icon}<span>{label}</span></button>
-   )}
-  </nav>
- </div>
+ <header className="topbar"><div className="brand"><div className="logo">D</div><div><b>Dornelas IA</b><small>Painel local · IA desativada</small></div></div><div className="top-actions"><span className="status ok">GitHub Pages</span><button className="iconbtn" onClick={backup}>Backup</button></div></header>
+ <main>{notice&&<div className="notice">{notice}<button className="mini" style={{float:"right"}} onClick={()=>setNotice("")}>Fechar</button></div>}
+ {tab==="central"&&<div className="page"><section className="hero"><div><span className="eyebrow">BASE OPERACIONAL</span><h1>Organizar. Executar. Vender.</h1><p>Versão independente que funciona como site estático no GitHub Pages. Sem servidor, chaves de API ou chamadas de IA.</p><div className="hero-actions"><button className="primary" onClick={()=>go("campanhas")}>Criar campanha</button><button className="secondary" onClick={()=>go("produtos")}>Organizar catálogo</button></div></div></section>
+ <div className="grid"><Metric title="Produtos" value={data.products.length} note="neste navegador"/><Metric title="Campanhas" value={data.campaigns.length} note="links com UTM"/><Metric title="Pedidos" value={totals.orders} note="registro manual"/><Metric title="Faturamento" value={money(totals.revenue)} note="atribuído às campanhas"/></div>
+ <section className="card"><span className="eyebrow">FERRAMENTAS LOCAIS</span><h2>O que já funciona</h2><div className="next-grid"><Action title="Catálogo" text="Cadastre produtos e preços." button="Abrir produtos" onClick={()=>go("produtos")}/><Action title="Aquisição" text="Gere links UTM e registre pedidos." button="Abrir campanhas" onClick={()=>go("campanhas")}/><Action title="Conteúdo" text="Crie rascunhos por modelos fixos." button="Criar rascunho" onClick={()=>go("conteudo")}/></div></section>
+ <section className="card"><span className="eyebrow">LIMITES CLAROS</span><h2>O que ainda não faz</h2><p className="muted">Não publica no Instagram, não lê Insights, não rastreia visitas automaticamente, não sincroniza aparelhos e não usa IA. Os dados ficam neste navegador. Exporte o backup para guardar ou transferir seus registros.</p><div className="hero-actions"><button className="secondary" onClick={backup}>Exportar backup</button><label className="secondary" style={{display:"inline-flex",alignItems:"center",cursor:"pointer"}}>Importar backup<input type="file" accept="application/json" onChange={restore} style={{display:"none"}}/></label></div></section></div>}
+ {tab==="produtos"&&<div className="page"><Header eyebrow="CATÁLOGO LOCAL" title="Produtos e preços" text="Preço ou estoque vazio significa que precisa ser confirmado."/><section className="card"><h2>Novo produto</h2><div className="acq-form"><label>Nome<input value={product.name} onChange={e=>setProduct(v=>({...v,name:e.target.value}))} placeholder="Ex.: Bacon de pernil"/></label><label>Categoria<select value={product.category} onChange={e=>setProduct(v=>({...v,category:e.target.value}))}>{["Defumados","Kits","Linguiças","Outros"].map(x=><option key={x}>{x}</option>)}</select></label><label>Preço (R$)<input type="number" min="0" step=".01" value={product.price} onChange={e=>setProduct(v=>({...v,price:e.target.value}))}/></label><label>Estoque (opcional)<input value={product.stock} onChange={e=>setProduct(v=>({...v,stock:e.target.value}))}/></label></div><button className="primary" onClick={addProduct}>Salvar produto</button></section><section className="card"><h2>Catálogo</h2>{data.products.length?data.products.map(p=><div className="campaign-row" key={p.id}><div className="campaign-select"><b>{p.name}</b><small>{p.category} · {p.stock?"Estoque: "+p.stock:"estoque não informado"}</small><span>{p.price?money(p.price):"Preço a confirmar"}</span></div><button className="mini" onClick={()=>{setProduct({name:p.name,price:p.price||"",stock:p.stock||"",category:p.category||"Outros"});update("products",v=>v.filter(x=>x.id!==p.id));setNotice("Edite os campos e salve para confirmar.")}}>Editar</button><button className="mini danger" onClick={()=>remove("products",p.id)}>Excluir</button></div>):<div className="empty">Nenhum produto cadastrado.</div>}</section></div>}
+ {tab==="campanhas"&&<div className="page"><Header eyebrow="AQUISIÇÃO DE CLIENTES" title="Campanhas e resultados" text="Os números são manuais. Cliques e pedidos não são rastreados automaticamente."/><section className="card"><h2>Nova campanha</h2><div className="acq-form"><label>Nome<input value={campaign.name} onChange={e=>setCampaign(v=>({...v,name:e.target.value}))} placeholder="Ex.: Oferta de bacon"/></label><label>Canal<select value={campaign.channel} onChange={e=>setCampaign(v=>({...v,channel:e.target.value}))}>{["Instagram","WhatsApp","Facebook","Google","Influenciador","Outro"].map(x=><option key={x}>{x}</option>)}</select></label><label className="wide">Destino<input value={campaign.destination} onChange={e=>setCampaign(v=>({...v,destination:e.target.value}))}/></label></div><button className="primary" onClick={addCampaign}>Criar link UTM</button></section><section className="card"><h2>Campanhas salvas</h2>{data.campaigns.length?data.campaigns.map(c=><Campaign key={c.id} item={c} link={link(c)} update={fn=>update("campaigns",fn)} remove={()=>remove("campaigns",c.id)} notify={setNotice}/>):<div className="empty">Nenhuma campanha criada.</div>}</section></div>}
+ {tab==="conteudo"&&<div className="page"><Header eyebrow="CONTEÚDO SEM IA" title="Rascunhos comerciais" text="Modelos fixos ajudam a começar. Revise preço, disponibilidade e informações antes de publicar."/><section className="card"><h2>Novo rascunho</h2><div className="acq-form"><label>Produto<select value={draft.product} onChange={e=>setDraft(v=>({...v,product:e.target.value}))}>{data.products.map(p=><option key={p.id}>{p.name}</option>)}</select></label><label>Formato<select value={draft.format} onChange={e=>setDraft(v=>({...v,format:e.target.value}))}>{["Post","Stories","Reel","WhatsApp"].map(x=><option key={x}>{x}</option>)}</select></label><label className="wide">Objetivo<input value={draft.goal} onChange={e=>setDraft(v=>({...v,goal:e.target.value}))}/></label></div><button className="primary" onClick={addDraft} disabled={!data.products.length}>Criar rascunho</button></section><section className="card"><h2>Rascunhos salvos</h2>{data.drafts.length?data.drafts.map(d=><div className="action" key={d.id}><div style={{flex:1,minWidth:0}}><div className="time">{d.format} · {new Date(d.createdAt).toLocaleDateString("pt-BR")}</div><b>{d.product}</b><pre>{d.text}</pre><div className="hero-actions"><button className="secondary" onClick={()=>navigator.clipboard&&navigator.clipboard.writeText(d.text).then(()=>setNotice("Texto copiado."),()=>setNotice("Copie o texto manualmente."))}>Copiar texto</button><button className="mini" onClick={()=>{setAgenda({title:d.product+" — "+d.format,date:new Date().toISOString().slice(0,10),channel:"Instagram",status:"Planejado"});go("agenda");setNotice("Confira a data e adicione à agenda.")}}>Agendar</button><button className="mini danger" onClick={()=>remove("drafts",d.id)}>Excluir</button></div></div></div>):<div className="empty">Nenhum rascunho.</div>}</section></div>}
+ {tab==="agenda"&&<div className="page"><Header eyebrow="PLANEJAMENTO MANUAL" title="Agenda de conteúdo" text="Organize publicações. Esta agenda não publica automaticamente."/><section className="card"><h2>Adicionar item</h2><div className="acq-form"><label className="wide">Título<input value={agenda.title} onChange={e=>setAgenda(v=>({...v,title:e.target.value}))} placeholder="Ex.: Reel do bacon"/></label><label>Data<input type="date" value={agenda.date} onChange={e=>setAgenda(v=>({...v,date:e.target.value}))}/></label><label>Canal<select value={agenda.channel} onChange={e=>setAgenda(v=>({...v,channel:e.target.value}))}>{["Instagram","WhatsApp","Facebook","Site","Outro"].map(x=><option key={x}>{x}</option>)}</select></label><label>Status<select value={agenda.status} onChange={e=>setAgenda(v=>({...v,status:e.target.value}))}>{["Planejado","Pronto para revisar","Publicado","Cancelado"].map(x=><option key={x}>{x}</option>)}</select></label></div><button className="primary" onClick={addAgenda}>Adicionar à agenda</button></section><section className="card"><h2>Agenda</h2>{data.agenda.length?data.agenda.map(a=><div className="action" key={a.id}><div className="time">{a.date}</div><div style={{flex:1}}><b>{a.title}</b><p className="muted">{a.channel} · {a.status}</p><div className="hero-actions"><select value={a.status} onChange={e=>update("agenda",v=>v.map(x=>x.id===a.id?{...x,status:e.target.value}:x))}>{["Planejado","Pronto para revisar","Publicado","Cancelado"].map(x=><option key={x}>{x}</option>)}</select><button className="mini danger" onClick={()=>remove("agenda",a.id)}>Excluir</button></div></div></div>):<div className="empty">Nenhum conteúdo na agenda.</div>}</section></div>}
+ </main><nav className="bottom-nav">{[["central","⌂","Início"],["produtos","▦","Produtos"],["campanhas","↗","Campanhas"],["conteudo","▣","Conteúdo"],["agenda","◷","Agenda"]].map(([id,icon,label])=><button key={id} className={tab===id?"active":""} onClick={()=>go(id)}>{icon}<span>{label}</span></button>)}</nav></div>
 }
-
-function Central({meta,site,health,audit,loading,connect,runAudit,repair,message,openChat,setTab}){
- const profile=meta?.data?.profile||null;
- const instagramReady=Boolean(meta?.targetAvailable);
- return <div className="page">
-  <section className="hero">
-   <div><span className="eyebrow">OBJETIVO ÚNICO</span><h1>Vender mais.</h1><p>Eu encontro oportunidades, crio conteúdo, testo ideias, acompanho resultados e preparo a próxima ação.</p></div>
-   <div className="hero-actions">
-    <button className="primary" onClick={runAudit} disabled={loading}>{loading?"Analisando…":"Auditar e melhorar"}</button>
-    <button className="secondary" onClick={()=>openChat("Analise o negócio Dornelas agora e escolha a ação de maior potencial para gerar vendas nos próximos 7 dias.")}>Falar com a IA</button>
-   </div>
-  </section>
-  {message&&<div className="notice">{message}</div>}
-  <div className="grid">
-   <Metric title="IA" value={health==null?"…":health.aiConfigured?"Pronta":"Erro"} note={health?.aiConfigured?"modelo configurado":"ver configuração do servidor"}/>
-   <Metric title="Instagram" value={instagramReady?"Pronto":meta?.connected?"Meta conectada":"Pendente"} note={profile?("@"+(profile.username||"conta")):(meta?.targetError||"dados ainda não lidos")}/>
-   <Metric title="Site" value={site?.connected?"Conectado":site==null?"…":"Erro"} note={site?.connected?"catálogo disponível para análise":"não acessível"}/>
-   <Metric title="Modo atual" value={instagramReady?"Instagram":"Venda"} note={instagramReady?"dados e publicação autorizados":"IA de vendas funciona sem Instagram"}/>
-  </div>
-  <section className="card">
-   <div className="cardhead"><div><span className="eyebrow">PRÓXIMA MELHOR AÇÃO</span><h2>Decisão guiada por vendas.</h2></div><span className="pill green">foco em vendas</span></div>
-   <div className="next-grid">
-    <Action title="1 · Ler Instagram" text={instagramReady?"Analisar publicações, engajamento e padrões vencedores.":meta?.connected?(meta?.targetError||"Meta autorizada, mas o Instagram profissional ainda não foi localizado."):"Conectar a Meta para liberar dados oficiais."} button={instagramReady?"Ver conteúdo":"Conectar / corrigir"} onClick={instagramReady?()=>setTab("conteudo"):connect}/>
-    <Action title="2 · Encontrar oportunidade" text="Cruzar catálogo, tendências públicas e contexto comercial para escolher o próximo conteúdo." button="Analisar agora" onClick={()=>openChat("Encontre a melhor oportunidade de venda para a Dornelas agora. Considere catálogo, tendências e margem quando disponíveis. Entregue 3 ações em ordem de prioridade.")}/>
-    <Action title="3 · Criar conteúdo" text="Transformar a oportunidade em legenda, Reel, Stories e CTA prontos para copiar." button="Criar conteúdo" onClick={()=>openChat("Crie uma campanha completa para vender Bacon Dornelas: 1 legenda, 1 roteiro de Reel, 5 Stories e CTA. Use somente informações reais do catálogo.")}/>
-   </div>
-  </section>
-  <section className="card site-growth-card">
-   <div className="cardhead"><div><span className="eyebrow">SITE QUE VENDE</span><h2>A IA também melhora sua loja.</h2></div><span className="pill green">otimização contínua</span></div>
-   <p className="muted">Ela analisa o site real, encontra gargalos de conversão e monta um plano técnico. Eu posso usar esse plano para corrigir o código sem apagar o que já funciona.</p>
-   <div className="next-grid">
-    <Action title="Diagnosticar" text="Descobrir o que pode estar reduzindo pedidos, principalmente no celular." button="Analisar site" onClick={()=>setTab("config")}/>
-    <Action title="Transformar em ação" text="Gerar um plano priorizado com alteração, impacto e critério de validação." button="Propor melhorias" onClick={()=>setTab("config")}/>
-   </div>
-  </section>
-  <section className="card sales-mode-card">
-   <div className="cardhead"><div><span className="eyebrow">MODO VENDA</span><h2>Você não precisa esperar o Instagram.</h2></div><span className="pill green">ativo</span></div>
-   <p className="muted">A IA usa o catálogo do site, pesquisa pública e os prints que você enviar. A conexão automática do Instagram é complementar.</p>
-   <div className="next-grid">
-    <Action title="Pacote de vendas" text="3 posts + 1 Reel + Stories, pensados para gerar pedidos." button="Criar pacote" onClick={()=>openChat("Crie meu pacote comercial agora: 3 posts, 1 Reel e 5 Stories. Priorize produtos com maior potencial de venda e não invente preço, estoque ou promoção.")}/>
-    <Action title="Analisar Insights" text="Envie um print e transforme números em decisões práticas." button="Abrir IA" onClick={()=>openChat("Vou enviar um print dos Insights. Analise o que está funcionando, o que está fraco e exatamente o que devo mudar para vender mais.")}/>
-   </div>
-  </section>
-  {audit&&<section className="card">
-   <div className="cardhead"><div><span className="eyebrow">AUTOAVALIAÇÃO</span><h2>Diagnóstico do sistema</h2></div><span className={"pill "+(audit.ok?"green":"yellow")}>{audit.ok?"OK":"atenção"}</span></div>
-   <pre>{JSON.stringify(audit,null,2)}</pre><button className="primary" onClick={repair} disabled={loading}>Aplicar correções seguras</button>
-  </section>}
-  <section className="card">
-   <div className="cardhead"><div><span className="eyebrow">CONEXÃO INSTAGRAM</span><h2>{instagramReady?"Instagram pronto para a IA.":"Meta e Instagram ainda precisam de validação."}</h2></div></div>
-   <p className="muted">{instagramReady?"Agora a IA pode ler dados e preparar/publicar conteúdo conforme as permissões.":meta?.connected?"A Meta está autorizada, mas o alvo profissional ainda não foi localizado. O sistema já tenta Página e ativos do Business Manager usando o mesmo token.":"Conecte pela Meta para liberar os dados oficiais. Nunca coloque sua senha do Instagram aqui."}</p>
-   {!instagramReady&&<button className="secondary" onClick={connect}>{meta?.connected?"Reconectar Meta":"Conectar Instagram"}</button>}
-  </section>
- </div>
-}
-
-function Action({title,text,button,onClick}){return <div className="next-action"><b>{title}</b><p>{text}</p><button className="secondary" onClick={onClick}>{button}</button></div>}
+function Header({eyebrow,title,text}){return <header className="section-head"><div><span className="eyebrow">{eyebrow}</span><h1>{title}</h1><p>{text}</p></div></header>}
 function Metric({title,value,note}){return <div className="metric"><span>{title}</span><strong>{value}</strong><small>{note}</small></div>}
-
-
-function Acquisition({openChat}){
- const [campaigns,setCampaigns]=useState(()=>{try{return JSON.parse(localStorage.getItem("dornelas-campaigns")||"[]")}catch{return[]}});
- const [name,setName]=useState("");
- const [channel,setChannel]=useState("Instagram");
- const [destination,setDestination]=useState("https://iinteligenci.github.io/Site-dornelas/");
- const [selected,setSelected]=useState("");
- const [edit,setEdit]=useState({clicks:"",leads:"",orders:"",revenue:"",spend:""});
- const [notice,setNotice]=useState("");
- useEffect(()=>{localStorage.setItem("dornelas-campaigns",JSON.stringify(campaigns))},[campaigns]);
- const money=n=>Number(n||0).toLocaleString("pt-BR",{style:"currency",currency:"BRL"});
- const validUrl=value=>{try{const u=new URL(value);return u.protocol==="https:"||u.protocol==="http:"}catch{return false}};
- const buildLink=(campaign)=>{try{const u=new URL(campaign.destination);u.searchParams.set("utm_source",campaign.channel.toLowerCase().replace(/[^a-z0-9]+/g,"_"));u.searchParams.set("utm_medium","social");u.searchParams.set("utm_campaign",campaign.slug);return u.toString()}catch{return campaign.destination}};
- const slugify=s=>String(s).normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase().replace(/[^a-z0-9]+/g,"_").replace(/^_|_$/g,"");
- const add=()=>{
-  if(!name.trim()){setNotice("Dê um nome para a campanha.");return}
-  if(!validUrl(destination)){setNotice("Informe um endereço válido começando com https://.");return}
-  const item={id:Date.now().toString(),name:name.trim(),channel,destination,slug:slugify(name)||("campanha_"+Date.now()),createdAt:new Date().toISOString(),clicks:0,leads:0,orders:0,revenue:0,spend:0};
-  setCampaigns(v=>[item,...v]);setSelected(item.id);setName("");setNotice("Campanha criada. Copie o link marcado e use esse link em todas as divulgações desta campanha.");
- };
- const choose=id=>{const item=campaigns.find(x=>x.id===id);setSelected(id);setEdit(item?{clicks:String(item.clicks||0),leads:String(item.leads||0),orders:String(item.orders||0),revenue:String(item.revenue||0),spend:String(item.spend||0)}:{clicks:"",leads:"",orders:"",revenue:"",spend:""});setNotice("")};
- const saveResults=()=>{
-  const numbers={};for(const key of ["clicks","leads","orders","revenue","spend"]){numbers[key]=Number(edit[key]||0);if(!Number.isFinite(numbers[key])||numbers[key]<0){setNotice("Use apenas números iguais ou maiores que zero.");return}}
-  if(numbers.leads>numbers.clicks&&numbers.clicks>0){setNotice("Leads não podem ser maiores que cliques. Confira os números.");return}
-  if(numbers.orders>numbers.leads&&numbers.leads>0){setNotice("Pedidos não podem ser maiores que leads. Confira os números.");return}
-  setCampaigns(v=>v.map(x=>x.id===selected?{...x,...numbers,updatedAt:new Date().toISOString()}:x));setNotice("Resultados salvos neste aparelho.");
- };
- const total=key=>campaigns.reduce((s,x)=>s+Number(x[key]||0),0);
- const selectedCampaign=campaigns.find(x=>x.id===selected);
- const link=selectedCampaign?buildLink(selectedCampaign):"";
- const exportCsv=()=>{
-  const rows=[["Campanha","Canal","Criada em","Cliques informados","Leads","Pedidos","Faturamento (R$)","Investimento (R$)"],...campaigns.map(x=>[x.name,x.channel,new Date(x.createdAt).toLocaleDateString("pt-BR"),x.clicks,x.leads,x.orders,x.revenue,x.spend])];
-  const csv=rows.map(row=>row.map(v=>'"'+String(v??"").replace(/"/g,'""')+'"').join(";")).join("\n");
-  const blob=new Blob(["\uFEFF"+csv],{type:"text/csv;charset=utf-8;"});const url=URL.createObjectURL(blob);const a=document.createElement("a");a.href=url;a.download="dornelas-resultados-campanhas.csv";a.click();URL.revokeObjectURL(url);
- };
- const deleteCampaign=id=>{if(!window.confirm("Excluir esta campanha e os resultados registrados?"))return;setCampaigns(v=>v.filter(x=>x.id!==id));if(selected===id){setSelected("");setEdit({clicks:"",leads:"",orders:"",revenue:"",spend:""})}};
- return <div className="page">
-  <header className="section-head"><div><span className="eyebrow">AQUISIÇÃO DE CLIENTES</span><h1>Campanha que vira pedido.</h1><p>Organize cada divulgação, use um link diferente por campanha e registre o resultado comercial para descobrir o que realmente vende.</p></div><div className="hero-actions"><button className="secondary" onClick={()=>openChat("Planeje uma campanha de aquisição para a Dornelas com foco em conseguir novos clientes e gerar pedidos pelo site. Defina público, oferta, criativo, CTA e como medir os resultados. Não invente preço nem estoque.")}>Planejar com IA</button><button className="secondary" onClick={exportCsv} disabled={!campaigns.length}>Exportar CSV</button></div></header>
-  <div className="grid"><Metric title="Campanhas" value={campaigns.length} note="registradas neste aparelho"/><Metric title="Pedidos" value={total("orders")} note="resultados informados manualmente"/><Metric title="Faturamento" value={money(total("revenue"))} note="valor atribuído às campanhas"/><Metric title="Investimento" value={money(total("spend"))} note="gasto informado manualmente"/></div>
-  <section className="card">
-   <span className="eyebrow">01 · CRIAR CAMPANHA</span><h2>Uma divulgação, um link.</h2>
-   <div className="acq-form">
-    <label>Nome da campanha<input value={name} onChange={e=>setName(e.target.value)} placeholder="Ex.: Combo bacon e linguiça — outubro"/></label>
-    <label>Canal<select value={channel} onChange={e=>setChannel(e.target.value)}><option>Instagram</option><option>WhatsApp</option><option>Facebook</option><option>Google</option><option>Influenciador</option><option>Outro</option></select></label>
-    <label className="wide">Link de destino<input value={destination} onChange={e=>setDestination(e.target.value)} placeholder="https://..."/></label>
-   </div>
-   <p className="muted">O link recebe etiquetas UTM para identificar a origem. A contagem automática de visitas e pedidos ainda depende de instrumentar o site; por enquanto, registre os resultados observados na tela abaixo.</p>
-   <button className="primary" onClick={add}>Criar campanha e gerar link</button>
-  </section>
-  {notice&&<div className="notice">{notice}</div>}
-  <section className="card">
-   <div className="cardhead"><div><span className="eyebrow">02 · ACOMPANHAR RESULTADOS</span><h2>Campanhas registradas</h2></div></div>
-   {!campaigns.length?<div className="empty">Nenhuma campanha ainda. Crie a primeira e use o link exclusivo na divulgação.</div>:<div className="campaign-list">{campaigns.map(x=><div className={"campaign-row "+(selected===x.id?"chosen":"")} key={x.id}><button className="campaign-select" onClick={()=>choose(x.id)}><b>{x.name}</b><small>{x.channel} · criada em {new Date(x.createdAt).toLocaleDateString("pt-BR")}</small><span>{x.orders||0} pedidos · {money(x.revenue||0)}</span></button><button className="mini" onClick={async()=>{try{await copyText(buildLink(x));setNotice("Link da campanha copiado.")}catch{setNotice("Não foi possível copiar o link.")}}}>Copiar link</button><button className="mini danger" onClick={()=>deleteCampaign(x.id)}>Excluir</button></div>)}</div>}
-  </section>
-  {selectedCampaign&&<section className="card">
-   <span className="eyebrow">03 · RESULTADO COMERCIAL</span><h2>{selectedCampaign.name}</h2>
-   <label className="wide">Link marcado para divulgar<input readOnly value={link}/></label>
-   <div className="hero-actions"><button className="primary" onClick={()=>copyText(link).then(()=>setNotice("Link copiado para a área de transferência."))}>Copiar link marcado</button><button className="secondary" onClick={()=>window.open(link,"_blank","noopener,noreferrer")}>Testar destino</button></div>
-   <div className="acq-form results-form">
-    <label>Cliques observados<input type="number" min="0" value={edit.clicks} onChange={e=>setEdit(v=>({...v,clicks:e.target.value}))}/></label>
-    <label>Leads / conversas<input type="number" min="0" value={edit.leads} onChange={e=>setEdit(v=>({...v,leads:e.target.value}))}/></label>
-    <label>Pedidos fechados<input type="number" min="0" value={edit.orders} onChange={e=>setEdit(v=>({...v,orders:e.target.value}))}/></label>
-    <label>Faturamento (R$)<input type="number" min="0" step="0.01" value={edit.revenue} onChange={e=>setEdit(v=>({...v,revenue:e.target.value}))}/></label>
-    <label>Investimento (R$)<input type="number" min="0" step="0.01" value={edit.spend} onChange={e=>setEdit(v=>({...v,spend:e.target.value}))}/></label>
-   </div>
-   <div className="grid"><Metric title="Conversão em pedidos" value={(Number(edit.clicks)>0?(Number(edit.orders||0)/Number(edit.clicks)*100):0).toFixed(1)+"%"} note="pedidos ÷ cliques informados"/><Metric title="Custo por pedido" value={Number(edit.orders)>0?money(Number(edit.spend||0)/Number(edit.orders)):money(0)} note="investimento ÷ pedidos"/><Metric title="Saldo antes de custos" value={money(Number(edit.revenue||0)-Number(edit.spend||0))} note="não é lucro líquido"/></div>
-   <button className="primary" onClick={saveResults}>Salvar resultados</button>
-  </section>}
-  <section className="card"><span className="eyebrow">COMO USAR NA PRÁTICA</span><h2>Rotina de 5 minutos por campanha</h2><ol className="muted"><li>Crie uma campanha para cada oferta ou canal diferente.</li><li>Copie o link marcado e use-o naquela divulgação específica.</li><li>Registre cliques e conversas apenas quando tiver números confiáveis.</li><li>Conte pedidos e faturamento que vieram daquela campanha.</li><li>Compare resultados antes de repetir ou investir mais dinheiro.</li></ol><p className="muted">Os dados ficam salvos no armazenamento local deste navegador/aparelho. Não são enviados ao servidor e não aparecem automaticamente em outros dispositivos. Não registre nomes, telefones ou outros dados pessoais aqui.</p></section>
- </div>
+function Action({title,text,button,onClick}){return <div className="next-action"><b>{title}</b><p>{text}</p><button className="secondary" onClick={onClick}>{button}</button></div>}
+function Campaign({item,link,update,remove,notify}){
+ const [edit,setEdit]=useState(false),[v,setV]=useState({clicks:String(item.clicks||0),leads:String(item.leads||0),orders:String(item.orders||0),revenue:String(item.revenue||0),spend:String(item.spend||0)});
+ const copy=()=>navigator.clipboard?navigator.clipboard.writeText(link).then(()=>notify("Link copiado."),()=>notify("Não foi possível copiar.")):notify("Copie o link manualmente.");
+ return <div className="card" style={{marginTop:10}}><div className="cardhead"><div><b>{item.name}</b><p className="muted">{item.channel} · {new Date(item.createdAt).toLocaleDateString("pt-BR")}</p></div><button className="mini danger" onClick={remove}>Excluir</button></div><label className="wide">Link UTM<input readOnly value={link}/></label><div className="hero-actions" style={{marginTop:10}}><button className="secondary" onClick={copy}>Copiar link</button><button className="secondary" onClick={()=>window.open(link,"_blank","noopener,noreferrer")}>Testar destino</button><button className="secondary" onClick={()=>setEdit(x=>!x)}>{edit?"Fechar":"Registrar resultados"}</button></div>{edit&&<><div className="acq-form">{[["clicks","Cliques"],["leads","Conversas/leads"],["orders","Pedidos"],["revenue","Faturamento (R$)"],["spend","Investimento (R$)"]].map(([k,l])=><label key={k}>{l}<input type="number" min="0" value={v[k]} onChange={e=>setV(x=>({...x,[k]:e.target.value}))}/></label>)}</div><p className="muted">Saldo antes de outros custos: {money(Number(v.revenue||0)-Number(v.spend||0))}. Não representa lucro líquido.</p><button className="primary" onClick={()=>{const n={};for(const k of Object.keys(v)){n[k]=Number(v[k]||0);if(!Number.isFinite(n[k])||n[k]<0){notify("Use números não negativos.");return}}update(x=>x.map(c=>c.id===item.id?{...c,...n}:c));setEdit(false);notify("Resultados salvos neste navegador.")}}>Salvar resultados</button></>}</div>
 }
-
-function Chat({initialPrompt}){
- const [messages,setMessages]=useState([{role:"assistant",text:"Sou o cérebro comercial da Dornelas. Posso trabalhar agora com o catálogo do site, tendências públicas e os prints de Insights que você enviar. Minha meta é transformar análise em pedidos."}]);
- const [input,setInput]=useState(initialPrompt||""),[busy,setBusy]=useState(false),[image,setImage]=useState(null),[copiedId,setCopiedId]=useState(null),[error,setError]=useState("");
- useEffect(()=>{if(initialPrompt)setInput(initialPrompt)},[initialPrompt]);
-
- const send=async(text=input)=>{
-  const clean=String(text||"").trim();
-  if((!clean&&!image)||busy)return;
-  const userText=clean||"Analise este print do Instagram e diga exatamente o que devo fazer para vender mais.";
-  const userMessage={role:"user",text:userText,image:image?.preview};
-  const history=[...messages,userMessage].slice(-8);
-  setMessages(m=>[...m,userMessage]);setInput("");setError("");setBusy(true);
-  try{
-   const d=await api("/agent/chat",{method:"POST",timeout:60000,body:{message:userText,history,imageDataUrl:image?.dataUrl||null}});
-   setMessages(m=>[...m,{role:"assistant",text:d.response||"Sem resposta."}]);
-  }catch(e){setError(e.message);setMessages(m=>[...m,{role:"assistant",text:"Não consegui concluir agora. "+e.message}])}
-  finally{setBusy(false);setImage(null)}
- };
- const salesKit=()=>send("Crie meu pacote comercial agora: 3 posts, 1 Reel e 5 Stories. Priorize vendas.");
- const file=e=>{
-  const f=e.target.files?.[0];if(!f)return;
-  if(!f.type.startsWith("image/")){setError("Envie uma imagem.");return}
-  if(f.size>6*1024*1024){setError("Print muito grande. Use até 6 MB.");return}
-  const reader=new FileReader();
-  reader.onload=()=>setImage({preview:reader.result,dataUrl:reader.result});
-  reader.onerror=()=>setError("Não consegui ler o arquivo.");
-  reader.readAsDataURL(f);
-  e.target.value="";
- };
- const copy=async(id,text)=>{
-  try{await copyText(text);setCopiedId(id);setTimeout(()=>setCopiedId(null),1200)}catch{setError("Não consegui copiar. Selecione o texto manualmente.")}
- };
- return <div className="page"><section className="card chat-card">
-  <div className="cardhead"><div><span className="eyebrow">CÉREBRO COMERCIAL</span><h1>O que vamos vender?</h1></div><span className="pill green">modo venda ativo</span></div>
-  {error&&<div className="notice">{error}</div>}
-  <div className="chat-list">{messages.map((m,i)=><div className={"bubble "+m.role} key={i}>
-   {m.image&&<img src={m.image} alt="print enviado"/>}<b>{m.role==="user"?"Você":"Dornelas IA"}</b><p>{m.text}</p>
-   {m.role==="assistant"&&<button className="mini" onClick={()=>copy(i,m.text)}>{copiedId===i?"✓ Copiado":"Copiar"}</button>}
-  </div>)}</div>
-  {image&&<div className="attachment">Print anexado <button onClick={()=>setImage(null)}>×</button></div>}
-  <div className="chat-compose">
-   <label className="attach" title="Anexar print">＋<input type="file" accept="image/*" onChange={file}/></label>
-   <input value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>e.key==="Enter"&&!e.shiftKey&&(e.preventDefault(),send())} placeholder="Ex.: faça uma campanha para vender bacon esta semana"/>
-   <button className="primary" onClick={()=>send()} disabled={busy}>{busy?"Pensando…":"Enviar"}</button>
-  </div>
-  <div className="quick">
-   <button onClick={()=>send("Analise meus últimos resultados e escolha a próxima publicação.")} disabled={busy}>Analisar dados</button>
-   <button onClick={()=>send("Crie 3 ideias de conteúdo em alta para vender Bacon Dornelas.")} disabled={busy}>Conteúdo em alta</button>
-   <button onClick={()=>send("Monte um Reel com gancho forte para vender Kit Feijoada.")} disabled={busy}>Reel</button>
-   <button className="primary" onClick={salesKit} disabled={busy}>Pacote de vendas</button>
-  </div>
- </section></div>
-}
-
-function Content({setTab,openChat}){
- const [data,setData]=useState(null),[trend,setTrend]=useState(null),[busy,setBusy]=useState(false),[error,setError]=useState("");
- const load=async()=>{
-  if(busy)return;setBusy(true);setError("");
-  try{setData(await api("/meta/data"))}catch(e){setError(e.message)}finally{setBusy(false)}
- };
- const trends=async()=>{
-  if(busy)return;setBusy(true);setError("");
-  try{setTrend(await api("/agent/trends"))}catch(e){setError(e.message)}finally{setBusy(false)}
- };
- const posts=data?.media||[];
- const best=[...posts].sort((a,b)=>(Number(b.like_count)||0)+(Number(b.comments_count)||0)*2-((Number(a.like_count)||0)+(Number(a.comments_count)||0)*2)).slice(0,5);
- const trendPrompt=trend?"Transforme estas tendências públicas em conteúdo de venda para a Dornelas. Escolha somente as que fizerem sentido para alimentação/defumados e não invente fatos: "+JSON.stringify(trend).slice(0,5000):"Crie conteúdo comercial com base nas tendências públicas atuais e no catálogo real.";
- return <div className="page">
-  <header className="section-head"><div><span className="eyebrow">DADOS E CONTEÚDO</span><h1>O que está funcionando?</h1><p>Leio o que a Meta disponibilizar e transformo em decisão.</p></div><div className="hero-actions"><button className="primary" onClick={load} disabled={busy}>{busy?"Lendo…":"Ler Instagram"}</button><button className="secondary" onClick={trends} disabled={busy}>Buscar tendências</button></div></header>
-  {error&&<div className="notice">{error}</div>}
-  {!data?<div className="notice">Ainda não carreguei os dados. Se a Meta estiver conectada, toque em “Ler Instagram”.</div>:<>
-   <div className="grid"><Metric title="Conta" value={"@"+(data.profile?.username||"—")} note={data.profile?.followers_count!=null?data.profile.followers_count+" seguidores":"seguidores não disponíveis"}/><Metric title="Posts lidos" value={posts.length} note="últimas publicações acessíveis"/><Metric title="Interações" value={posts.reduce((s,p)=>s+(Number(p.like_count)||0)+(Number(p.comments_count)||0),0)} note="curtidas + comentários"/><Metric title="Insights" value={(data.insights||[]).length} note="métricas retornadas pela Meta"/></div>
-   <section className="card"><span className="eyebrow">MELHORES SINAIS</span><h2>Posts para estudar</h2>{best.length?best.map(p=><div className="action" key={p.id}><div className="time">{p.timestamp?new Date(p.timestamp).toLocaleDateString("pt-BR"):"—"}</div><div><b>{p.like_count||0} curtidas · {p.comments_count||0} comentários</b><p className="muted">{p.caption||"Sem legenda"}</p></div></div>):<div className="empty">A Meta não retornou publicações acessíveis.</div>}</section>
-  </>}
-  {trend&&<section className="card"><span className="eyebrow">TENDÊNCIAS PÚBLICAS</span><h2>Assuntos que podem virar conteúdo</h2><pre>{JSON.stringify(trend,null,2)}</pre><button className="primary" onClick={()=>openChat(trendPrompt)}>Levar para a IA e criar conteúdo</button></section>}
- </div>
-}
-
-function Agenda({openChat}){
- const [data,setData]=useState(null),[busy,setBusy]=useState(false),[error,setError]=useState("");
- const load=async()=>{
-  if(busy)return;setBusy(true);setError("");
-  try{const d=await api("/agent/schedule");setData(Array.isArray(d.schedule)?d.schedule:[])}catch(e){setError(e.message)}finally{setBusy(false)}
- };
- useEffect(()=>{load()},[]);
- return <div className="page"><header className="section-head"><div><span className="eyebrow">PUBLICAÇÃO</span><h1>Agenda automática.</h1><p>A IA prepara e o servidor publica itens aprovados no horário.</p></div><div className="hero-actions"><button className="primary" onClick={load} disabled={busy}>{busy?"Atualizando…":"Atualizar"}</button><button className="secondary" onClick={()=>openChat("Crie uma sequência de conteúdo para os próximos 7 dias e sugira horários. Não publique ainda.")}>Planejar semana</button></div></header>
- {error&&<div className="notice">{error}</div>}
- <section className="card">{data===null?<p className="muted">Carregando agenda…</p>:data.length===0?<div className="empty">Nenhuma postagem agendada ainda.<br/><button className="secondary" onClick={()=>openChat("Crie 7 ideias de posts para esta semana e organize por dia.")}>Criar planejamento com IA</button></div>:data.map(x=><div className="action" key={x.id}><div className="time">{x.scheduledFor?new Date(x.scheduledFor).toLocaleString("pt-BR"):"—"}</div><div><b>{x.headline||x.caption?.slice(0,60)||"Postagem"}</b><p className="muted">{x.status||"sem status"}</p></div></div>)}</section>
- </div>
-}
-
-function Config({meta,connect,refresh}){
- const ready=Boolean(meta?.targetAvailable);
- const [busy,setBusy]=useState(false),[report,setReport]=useState(null),[error,setError]=useState("");
- const siteImprove=async()=>{
-  if(busy)return;setBusy(true);setError("");
-  try{const d=await api("/agent/site-improvements",{method:"POST",timeout:120000,body:{}});setReport({type:"site",data:d});}
-  catch(e){setError(e.message)}finally{setBusy(false)}
- };
- const collect=async()=>{
-  if(busy)return;setBusy(true);setError("");
-  try{const d=await api("/agent/knowledge/collect",{method:"POST",timeout:120000,body:{}});setReport({type:"collect",data:d});}
-  catch(e){setError(e.message)}finally{setBusy(false)}
- };
- const test=async()=>{
-  if(busy)return;setBusy(true);setError("");
-  try{const d=await api("/agent/knowledge/test",{method:"POST",timeout:180000,body:{}});setReport({type:"test",data:d});}
-  catch(e){setError(e.message)}finally{setBusy(false)}
- };
- return <div className="page"><header className="section-head"><div><span className="eyebrow">CONEXÕES + INTELIGÊNCIA</span><h1>Dados alimentando a IA.</h1><p>As conexões autorizadas são usadas para coletar dados, testar disponibilidade e construir a base de inteligência comercial.</p></div></header>
-  <section className="card"><Connection name="Instagram / Meta" connected={ready} onClick={connect}/>
-   <div className="notice">{ready?"Instagram profissional encontrado e pronto para a IA.":meta?.connected?("Meta autorizada, mas o alvo do Instagram não foi encontrado. "+(meta.targetError||"O sistema já tentou os caminhos disponíveis.")):"Ainda não há autorização da Meta."}</div>
-   {meta?.connected&&!ready&&<ol className="muted"><li>Abra a Página do Facebook que administra a Dornelas.</li><li>Em Configurações → Contas vinculadas, conecte o Instagram profissional.</li><li>Depois toque em “Reconectar” e autorize novamente.</li></ol>}
-   <div className="hero-actions"><button className="secondary" onClick={refresh}>Verificar conexões</button><button className="primary" onClick={collect} disabled={busy}>{busy?"Coletando…":"Construir banco da IA"}</button><button className="secondary" onClick={test} disabled={busy}>{busy?"Testando…":"Testar conexões 10×"}</button><button className="secondary" onClick={siteImprove} disabled={busy}>{busy?"Analisando…":"Propor melhorias no site"}</button></div>
-   {error&&<div className="notice">{error}</div>}
-   {report&&<section className="card"><span className="eyebrow">{report.type==="test"?"TESTE DE CONEXÕES":report.type==="site"?"MELHORIAS DO SITE":"BASE DE CONHECIMENTO"}</span>
-   {report.type==="site"&&report.data?.proposal?<div className="site-proposal"><h2>Plano de melhoria orientado a vendas</h2><p>{report.data.proposal.summary}</p><div className="proposal-grid">{(report.data.proposal.quickWins||[]).map((x,i)=><article className="metric" key={i}><b>{x.title}</b><small>{x.priority} · {x.problem}</small><p>{x.change}</p><span>{x.expectedImpact}</span></article>)}</div><h3>Ordem de implementação</h3><ol>{(report.data.proposal.implementationOrder||[]).map((x,i)=><li key={i}>{x}</li>)}</ol><button className="secondary" onClick={()=>copyText(report.data.proposal.implementationPrompt||"")}>Copiar plano para implementação</button></div>:<pre>{JSON.stringify(report.data,null,2)}</pre>}
-  </section>}
-  </section>
- </div>
-}
-function Connection({name,connected,onClick}){return <div className="connection"><div><b>{name}</b><small>{connected?"Conectado ao agente":"Ainda não conectado"}</small></div><button onClick={onClick}>{connected?"Reconectar":"Conectar"}</button></div>}
-
-createRoot(document.getElementById("root")).render(<ErrorBoundary><App/></ErrorBoundary>);
+createRoot(document.getElementById("root")).render(<App/>);

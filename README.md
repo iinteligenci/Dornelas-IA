@@ -1,32 +1,34 @@
-# Dornelas IA
+# Dornelas IA — base estática
 
-Sistema separado do site dos Defumados Dornelas para operar marketing, vendas e automações com IA.
+Painel operacional inicial dos Defumados Dornelas, preparado para funcionar no GitHub Pages sem backend, sem chaves de API e sem IA por enquanto.
 
-## Princípios
-- O site atual dos Defumados permanece intocado.
-- Integrações usam APIs/OAuth oficiais e permissões mínimas.
-- Ações sensíveis podem exigir aprovação humana.
-- Toda ação da IA deve gerar registro/auditoria.
+## Funcionalidades disponíveis no navegador
 
-## MVP
-1. Painel de comando
-2. Cadastro de produtos, preços e estoque
-3. Planejamento e geração de campanhas
-4. Aprovação de ações
-5. Integrações externas desacopladas
-6. Métricas e histórico
+- Cadastro local de produtos e preços.
+- Criação de campanhas e links com parâmetros UTM.
+- Registro manual de cliques, conversas, pedidos, faturamento e investimento.
+- Rascunhos de conteúdo por modelos fixos, sem geração por IA.
+- Agenda manual de conteúdo.
+- Exportação e importação de backup JSON.
 
-## Estrutura planejada
-- `apps/web`: painel
-- `apps/api`: API/backend
-- `packages/core`: regras de negócio
-- `packages/integrations`: conectores externos
-- `packages/ai`: orquestração do agente
+## Publicação pelo GitHub
 
-> Nenhuma credencial deve ser commitada neste repositório. Use variáveis de ambiente/secret manager.
+O workflow `.github/workflows/deploy-pages.yml` constrói o frontend e publica a pasta `dist` no GitHub Pages quando a branch `main` recebe alterações. O caminho de entrada usa URL relativa para funcionar no endereço de projeto do GitHub Pages.
 
+## Limitações importantes
 
-## Aquisição e conversão
-A aba **Aquisição** organiza campanhas por canal, gera links com parâmetros UTM e permite registrar manualmente cliques observados, conversas, pedidos, faturamento e investimento, além de exportar CSV.
+- Os dados são armazenados em `localStorage` no navegador atual; não sincronizam entre aparelhos nem usuários.
+- O backup JSON permite transferir os dados manualmente.
+- Não há coleta automática de visitas, integração com Instagram/Meta, publicação automática ou IA.
+- Não coloque credenciais, senhas ou chaves secretas no frontend ou neste repositório.
+- O backend antigo permanece no repositório como código de referência, mas não é necessário para esta versão estática.
 
-**Limitação atual:** os registros dessa aba ficam no armazenamento local do navegador/aparelho. Não há sincronização entre dispositivos e os números não são coletados automaticamente pelo site ou pelo WhatsApp. Os links UTM identificam a campanha no endereço, mas a medição automática exige instrumentação adicional no site e uma camada de armazenamento segura. Use números observados; não insira dados pessoais de clientes.
+## Desenvolvimento
+
+```bash
+npm install
+npm run dev
+npm run build
+```
+
+Esta versão é a base simples para validar o fluxo operacional antes de escolher banco de dados, backend ou integrações que exijam credenciais.

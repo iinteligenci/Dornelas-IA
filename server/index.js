@@ -11,6 +11,25 @@ import { publishPublicAsset, githubJsonGet, githubJsonPut } from "./integrations
 import { SYSTEM_PROMPT, CAMPAIGN_PROMPT, CONTENT_PLAN_PROMPT, RESEARCH_PROMPT, SITE_ANALYSIS_PROMPT, REUSE_PROMPT } from "./agent/ai-prompts.js";
 import { normalizeKnowledge, knowledgeInstructions } from "./data/knowledge.js";
 
+function adminSessionToken() {
+  const payload = Buffer.from(JSON.stringify({ exp: Date.now() + 8 * 60 * 60 * 1000 })).toString("base64url");
+  const signature = crypto.createHmac("sha256", process.env.ADMIN_SESSION_SECRET).update(payload).digest("base64url");
+  return payload + "." + signature;
+}
+function validAdminSession(req) {
+  const secret = process.env.ADMIN_SESSION_SECRET;
+  if (!secret) return false;
+  const token = readCookie(req, "dornelas_admin");
+  if (!token) return false;
+  const [payload, signature] = token.split(".");
+  if (!payload || !signature) return false;
+  const expected = crypto.createHmac("sha256", secret).update(payload).digest();
+  let actual;
+  try { actual = Buffer.from(signature, "base64url"); } catch { return false; }
+  if (actual.length !== expected.length || !crypto.timingSafeEqual(actual, expected)) return false;
+  try { return JSON.parse(Buffer.from(payload, "base64url").toString("utf8")).exp > Date.now(); } catch { return false; }
+}
+
 function cookieToken(secret, value) {
   const key = crypto.createHash("sha256").update(String(secret || "")).digest();
   const iv = crypto.randomBytes(12);
@@ -60,7 +79,7 @@ function cleanJson(text) {
 }
 
 async function fetchSiteSnapshot() {
-  const url=process.env.SITE_URL || "https://iinteligenci.github.io/dorn/";
+  const url=process.env.SITE_URL || "https://iinteligenci.github.io/Site-dornelas/";
   const response=await fetch(url,{headers:{"User-Agent":"Dornelas-IA/1.0"}});
   if(!response.ok) throw new Error("Site retornou HTTP "+response.status);
   const html=await response.text();
@@ -256,7 +275,39 @@ const server = await import("node:http").then(({ createServer }) =>
     res.setHeader("Access-Control-Allow-Credentials", "true");
     res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
     res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+    res.setHeader("Vary", "Origin");
     if (req.method === "OPTIONS") { res.statusCode = 204; res.end(); return; }
+
+    const requestUrl = new URL(req.url, "http://localhost");
+    const origin = req.headers.origin;
+    const allowedOrigin = "https://iinteligenci.github.io";
+    if (origin && origin !== allowedOrigin) { res.statusCode = 403; res.end(JSON.stringify({ error: "origin_not_allowed" })); return; }
+
+    if (req.method === "POST" && requestUrl.pathname === "/auth/login") {
+      const body = JSON.parse(await readBody(req).catch(() => "{}") || "{}");
+      const configuredPassword = process.env.ADMIN_PASSWORD;
+      if (!configuredPassword || !process.env.ADMIN_SESSION_SECRET) {
+        res.statusCode = 503; res.end(JSON.stringify({ error: "admin_auth_not_configured", message: "Configure ADMIN_PASSWORD e ADMIN_SESSION_SECRET no ambiente do servidor." })); return;
+      }
+      const submitted = Buffer.from(String(body.password || ""));
+      const expected = Buffer.from(configuredPassword);
+      if (submitted.length !== expected.length || !crypto.timingSafeEqual(submitted, expected)) {
+        res.statusCode = 401; res.end(JSON.stringify({ error: "invalid_password", message: "Senha incorreta." })); return;
+      }
+      res.setHeader("Set-Cookie", "dornelas_admin=" + adminSessionToken() + "; Path=/; Max-Age=28800; HttpOnly; Secure; SameSite=None");
+      res.end(JSON.stringify({ ok: true, expiresIn: 28800 })); return;
+    }
+
+    if (req.method === "POST" && requestUrl.pathname === "/auth/logout") {
+      res.setHeader("Set-Cookie", "dornelas_admin=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=None");
+      res.end(JSON.stringify({ ok: true })); return;
+    }
+
+    const protectedRoute = (req.method !== "GET" && !requestUrl.pathname.startsWith("/auth/")) ||
+      (req.method === "GET" && (requestUrl.pathname.startsWith("/agent/") || requestUrl.pathname === "/google/data" || requestUrl.pathname === "/meta/data"));
+    if (protectedRoute && !validAdminSession(req)) {
+      res.statusCode = 401; res.end(JSON.stringify({ error: "admin_login_required", message: "Entre com a senha administrativa para usar os recursos protegidos." })); return;
+    }
 
     if (req.method === "GET" && req.url === "/auth/meta") {
       const state = createOAuthState(); oauthStates.add(state);
@@ -267,7 +318,7 @@ const server = await import("node:http").then(({ createServer }) =>
 
     if (req.method === "GET" && req.url === "/auth/instagram") {
       const clientId=process.env.INSTAGRAM_CLIENT_ID||process.env.META_CLIENT_ID;
-      const redirectUri=process.env.INSTAGRAM_REDIRECT_URI||process.env.META_INSTAGRAM_REDIRECT_URI||"https://dornelas-ia.onrender.com/auth/instagram/callback";
+      const redirectUri=process.env.INSTAGRAM_REDIRECT_URI||process.env.META_INSTAGRAM_REDIRECT_URI||"http://localhost:8787/auth/instagram/callback";
       const clientSecret=process.env.INSTAGRAM_CLIENT_SECRET||process.env.META_CLIENT_SECRET;
       if(!clientId||!clientSecret||!redirectUri){res.statusCode=500;res.end(JSON.stringify({error:"instagram_oauth_not_configured",message:"Configure o Login do Instagram no Meta e defina a URL de callback."}));return;}
       const state=createOAuthState(); oauthStates.add(state);
@@ -290,7 +341,7 @@ const server = await import("node:http").then(({ createServer }) =>
       try{
         const clientId=process.env.INSTAGRAM_CLIENT_ID||process.env.META_CLIENT_ID;
         const clientSecret=process.env.INSTAGRAM_CLIENT_SECRET||process.env.META_CLIENT_SECRET;
-        const redirectUri=process.env.INSTAGRAM_REDIRECT_URI||process.env.META_INSTAGRAM_REDIRECT_URI||"https://dornelas-ia.onrender.com/auth/instagram/callback";
+        const redirectUri=process.env.INSTAGRAM_REDIRECT_URI||process.env.META_INSTAGRAM_REDIRECT_URI||"http://localhost:8787/auth/instagram/callback";
         const token=await exchangeInstagramCode({clientId,clientSecret,redirectUri,code});
         const longLived=await exchangeForLongLivedInstagramToken({clientSecret,accessToken:token.access_token});
         const accessToken=longLived.access_token||token.access_token;
@@ -358,7 +409,8 @@ const server = await import("node:http").then(({ createServer }) =>
       if (!code) { res.statusCode = 400; res.end(JSON.stringify({ error: "missing_code" })); return; }
       try {
         const token = await exchangeGoogleCode({ clientId: process.env.GOOGLE_CLIENT_ID, clientSecret: process.env.GOOGLE_CLIENT_SECRET, redirectUri: process.env.GOOGLE_REDIRECT_URI, code });
-        googleConnection = { accessToken: token?.access_token || null, refreshToken: token?.refresh_token || null, expiresAt: token?.expires_in ? Date.now()+Number(token.expires_in)*1000 : null, connected: Boolean(token?.access_token || token?.refresh_token) };\n        await persistGoogleConnection();
+        googleConnection = { accessToken: token?.access_token || null, refreshToken: token?.refresh_token || null, expiresAt: token?.expires_in ? Date.now()+Number(token.expires_in)*1000 : null, connected: Boolean(token?.access_token || token?.refresh_token) };
+        await persistGoogleConnection();
         if (googleConnection.refreshToken) {
           const googleCookie = cookieToken(process.env.GOOGLE_CLIENT_SECRET, JSON.stringify(googleConnection));
           res.setHeader("Set-Cookie", "dornelas_google=" + encodeURIComponent(googleCookie) + "; Path=/; Max-Age=31536000; HttpOnly; Secure; SameSite=None");
@@ -412,7 +464,8 @@ const server = await import("node:http").then(({ createServer }) =>
     }
 
     if (req.method === "GET" && req.url === "/google/status") {
-      await loadPersistedGoogleConnection();\n      const saved = readCookie(req, "dornelas_google");
+      await loadPersistedGoogleConnection();
+      const saved = readCookie(req, "dornelas_google");
       if (saved && !googleConnection) {
         const parsed = decryptCookie(process.env.GOOGLE_CLIENT_SECRET, saved);
         if (parsed) { try { googleConnection = JSON.parse(parsed); } catch {} }
@@ -731,7 +784,7 @@ Não invente estoque, avaliações, resultados ou promoções.`,
       const configured=[
         ["META_CLIENT_ID","Meta OAuth"],["META_CLIENT_SECRET","Meta OAuth secret"],["META_CONFIG_ID","Meta Login configuration"],
         ["META_REDIRECT_URI","Meta callback"],["GOOGLE_CLIENT_ID","Google OAuth"],["GOOGLE_CLIENT_SECRET","Google OAuth secret"],["GOOGLE_REDIRECT_URI","Google callback"],
-        ["OPENAI_API_KEY","IA"],["AI_MODEL","modelo IA"],["AI_IMAGE_MODEL","geração de imagem"],["GITHUB_TOKEN","armazenamento de dados/ativos"],
+        ["AI_API_KEY","IA"],["AI_MODEL","modelo IA"],["AI_IMAGE_MODEL","geração de imagem"],["GITHUB_TOKEN","armazenamento de dados/ativos"],
         ["CONTENT_ASSET_REPO","repositório de dados/ativos"],["CONTENT_ASSET_BRANCH","branch de dados"],["SITE_URL","site/catalogo"],["SCHEDULE_FILE","agenda"],
         ["META_PERSIST_FILE","persistência Meta"],["SCHEDULER_SECRET","scheduler"],["DORNELAS_SCHEDULER_SECRET","scheduler alternativo"],
         ["INSTAGRAM_CLIENT_ID","Instagram Login"],["INSTAGRAM_CLIENT_SECRET","Instagram Login secret"],["INSTAGRAM_REDIRECT_URI","Instagram callback"]
@@ -855,7 +908,7 @@ Cada quickWin deve ser executável e verificável. Não invente dados. Se não h
         const google=await safe("google_business",async()=>await getGoogleBusinessData());
         const trends=await safe("public_trends",getPublicTrends);
         const schedule=await safe("schedule",async()=>{const s=await githubJsonGet(schedulerPath());return Array.isArray(s.content)?s.content:[]})||[];
-        const config=await safe("config",async()=>{const x={};for(const k of ["META_CLIENT_ID","META_CLIENT_SECRET","META_CONFIG_ID","META_REDIRECT_URI","GOOGLE_CLIENT_ID","GOOGLE_CLIENT_SECRET","GOOGLE_REDIRECT_URI","OPENAI_API_KEY","AI_MODEL","AI_IMAGE_MODEL","GITHUB_TOKEN","CONTENT_ASSET_REPO","CONTENT_ASSET_BRANCH","SITE_URL","SCHEDULE_FILE","META_PERSIST_FILE","SCHEDULER_SECRET","DORNELAS_SCHEDULER_SECRET","INSTAGRAM_CLIENT_ID","INSTAGRAM_CLIENT_SECRET","INSTAGRAM_REDIRECT_URI"])x[k]=Boolean(process.env[k]);return x;});
+        const config=await safe("config",async()=>{const x={};for(const k of ["META_CLIENT_ID","META_CLIENT_SECRET","META_CONFIG_ID","META_REDIRECT_URI","GOOGLE_CLIENT_ID","GOOGLE_CLIENT_SECRET","GOOGLE_REDIRECT_URI","AI_API_KEY","AI_API_BASE_URL","AI_MODEL","AI_IMAGE_MODEL","GITHUB_TOKEN","CONTENT_ASSET_REPO","CONTENT_ASSET_BRANCH","SITE_URL","SCHEDULE_FILE","META_PERSIST_FILE","SCHEDULER_SECRET","DORNELAS_SCHEDULER_SECRET","INSTAGRAM_CLIENT_ID","INSTAGRAM_CLIENT_SECRET","INSTAGRAM_REDIRECT_URI"])x[k]=Boolean(process.env[k]);return x;});
         const knowledge=normalizeKnowledge({site,catalog,instagram,google,trends,schedule,config});
         let aiAnalysis=null;
         try{const ai=await runAI({instructions:knowledgeInstructions(),input:JSON.stringify(knowledge).slice(0,45000)});aiAnalysis=cleanJson(ai.text);}catch(error){errors.push({source:"knowledge_ai",error:error.message});}
@@ -893,13 +946,13 @@ Cada quickWin deve ser executável e verificável. Não invente dados. Se não h
 
     if (req.method === "POST" && req.url === "/agent/self-fix") {
       try{
-        const before=await fetch("https://dornelas-ia.onrender.com/health").then(r=>r.json()).catch(()=>({}));
+        const before=await fetch((process.env.API_BASE_URL || "http://127.0.0.1:" + port) + "/health").then(r=>r.json()).catch(()=>({}));
         const current=await githubJsonGet(schedulerPath());
         let list=Array.isArray(current.content)?current.content:[];
         const valid=list.filter(x=>x&&x.id&&x.caption&&x.scheduledFor&&x.status);
         let changed=valid.length!==list.length;
         if(!current.exists||changed) await githubJsonPut(schedulerPath(),valid,current.sha||undefined);
-        const auditReq=await fetch("https://dornelas-ia.onrender.com/agent/self-audit",{method:"POST",headers:{"Content-Type":"application/json"},body:"{}"});
+        const auditReq=await fetch((process.env.API_BASE_URL || "http://127.0.0.1:" + port) + "/agent/self-audit",{method:"POST",headers:{"Content-Type":"application/json"},body:"{}"});
         const audit=await auditReq.json();
         const state={ok:audit.ok,applied:["normalização da agenda","revalidação das integrações","registro do diagnóstico"],changed,at:new Date().toISOString(),health:before};
         try{const saved=await githubJsonGet("generated/ai/system-state.json");await githubJsonPut("generated/ai/system-state.json",state,saved.sha||undefined)}catch{}
@@ -909,7 +962,7 @@ Cada quickWin deve ser executável e verificável. Não invente dados. Se não h
     }
 
     if (req.method === "GET" && req.url === "/health") {
-      res.end(JSON.stringify({ ok: true, service: "dornelas-ia-agent", aiConfigured:Boolean(process.env.OPENAI_API_KEY), imageConfigured:Boolean(process.env.OPENAI_API_KEY), assetStorageConfigured:Boolean(process.env.GITHUB_TOKEN), schedulerConfigured:Boolean(process.env.GITHUB_TOKEN && (process.env.SCHEDULER_SECRET||process.env.DORNELAS_SCHEDULER_SECRET)) }));
+      res.end(JSON.stringify({ ok: true, service: "dornelas-ia-agent", aiConfigured:Boolean(process.env.AI_API_BASE_URL && process.env.AI_API_KEY && process.env.AI_MODEL), imageConfigured:Boolean(process.env.AI_API_BASE_URL && process.env.AI_API_KEY && process.env.AI_IMAGE_MODEL), assetStorageConfigured:Boolean(process.env.GITHUB_TOKEN), schedulerConfigured:Boolean(process.env.GITHUB_TOKEN && (process.env.SCHEDULER_SECRET||process.env.DORNELAS_SCHEDULER_SECRET)) }));
       return;
     }
 

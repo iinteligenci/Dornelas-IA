@@ -1,54 +1,24 @@
-# Conteúdo autônomo — Dornelas IA
+# Automação de conteúdo
 
-O Estúdio IA transforma dados reais do site/Instagram em um pacote comercial pronto para aprovação.
+## Fluxo esperado
 
-## Capacidades
+1. A IA prepara rascunhos e sugere datas.
+2. O sistema valida os campos obrigatórios e as permissões.
+3. O conteúdo permanece como rascunho até aprovação explícita.
+4. Um executor agendado processa apenas itens aprovados e vencidos.
+5. Cada tentativa registra horário, resultado e erro sem gravar segredos.
 
-- analisar o site público configurado em \`SITE_URL\`;
-- analisar Instagram/Meta conectado;
-- pesquisar assuntos e curiosidades atuais usando pesquisa web da IA;
-- montar plano editorial de 7 dias;
-- criar campanhas e testes A/B;
-- reaproveitar publicações existentes;
-- gerar artes com \`gpt-image-2\`;
-- gerar cortes de vídeos existentes com FFmpeg;
-- publicar imagens e Reels pela API oficial da Meta quando autorizado;
-- agendar conteúdos confirmados;
-- executar os agendamentos via GitHub Actions a cada 5 minutos.
+## Configuração
 
-## Variáveis do Render
+O executor deve receber por variáveis de ambiente as credenciais estritamente necessárias, a URL da API, o segredo do agendador e a configuração de persistência. Os nomes e valores finais dependem da infraestrutura escolhida.
 
-Além das variáveis Meta/OpenAI já existentes:
+## Persistência
 
-- \`AI_MODEL=gpt-6-luna\`
-- \`AI_IMAGE_MODEL=gpt-image-2\`
-- \`SITE_URL=https://iinteligenci.github.io/dorn/\`
-- \`GITHUB_TOKEN=<token do GitHub com Contents: Read and write no repositório iinteligenci/dorn>\`
-- \`CONTENT_ASSET_REPO=iinteligenci/dorn\`
-- \`CONTENT_ASSET_BRANCH=main\`
-- \`CONTENT_ASSET_BASE_URL=https://iinteligenci.github.io/dorn/\`
-- \`SCHEDULE_FILE=generated/ai/schedule.json\`
-- \`META_PERSIST_FILE=generated/ai/meta-connection.json\`
-- \`SCHEDULER_SECRET=<segredo aleatório forte>\`
+Não dependa do disco local como armazenamento permanente. A agenda, ativos e registros devem usar um armazenamento persistente adequado ao ambiente. O conector GitHub existente é opcional e deve ser avaliado antes de ser usado como banco operacional.
 
-O token do GitHub nunca deve ser colocado no código ou no GitHub. A API oficial de Contents aceita tokens fine-grained com permissão Contents: write.
+## Segurança operacional
 
-## Agendamento
-
-O workflow \`.github/workflows/content-scheduler.yml\` roda a cada 5 minutos no fuso \`America/Sao_Paulo\`.
-
-Crie no repositório \`iinteligenci/Dornelas-IA\` um Secret de Actions chamado:
-
-\`DORNELAS_SCHEDULER_SECRET\`
-
-O valor deve ser exatamente o mesmo de \`SCHEDULER_SECRET\` no Render.
-
-## Regra de segurança
-
-A IA não publica automaticamente apenas por ter gerado um conteúdo. O conteúdo precisa estar marcado como \`approved=true\` antes de entrar no agendamento/publicação.
-
-A autonomia nível 2 ou superior continua obrigatória para publicação externa.
-
-## Infraestrutura
-
-O Render atual está no plano Free. O filesystem local é efêmero; por isso os ativos e a agenda não ficam no disco local do Render. O projeto usa GitHub como armazenamento externo para esses artefatos.
+- O endpoint do agendador deve exigir autenticação por segredo.
+- Não publique automaticamente conteúdo que não esteja explicitamente aprovado.
+- Configure limite de tentativas, timeout, logs e alertas.
+- Não execute agendamentos reais até testar o fluxo completo no ambiente escolhido.
