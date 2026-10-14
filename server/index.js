@@ -287,7 +287,7 @@ const server = await import("node:http").then(({ createServer }) =>
       const body = JSON.parse(await readBody(req).catch(() => "{}") || "{}");
       const configuredPassword = process.env.ADMIN_PASSWORD;
       if (!configuredPassword || !process.env.ADMIN_SESSION_SECRET) {
-        res.statusCode = 503; res.end(JSON.stringify({ error: "admin_auth_not_configured", message: "Configure ADMIN_PASSWORD e ADMIN_SESSION_SECRET no Render." })); return;
+        res.statusCode = 503; res.end(JSON.stringify({ error: "admin_auth_not_configured", message: "Configure ADMIN_PASSWORD e ADMIN_SESSION_SECRET no ambiente do servidor." })); return;
       }
       const submitted = Buffer.from(String(body.password || ""));
       const expected = Buffer.from(configuredPassword);
@@ -318,7 +318,7 @@ const server = await import("node:http").then(({ createServer }) =>
 
     if (req.method === "GET" && req.url === "/auth/instagram") {
       const clientId=process.env.INSTAGRAM_CLIENT_ID||process.env.META_CLIENT_ID;
-      const redirectUri=process.env.INSTAGRAM_REDIRECT_URI||process.env.META_INSTAGRAM_REDIRECT_URI||"https://dornelas-ia.onrender.com/auth/instagram/callback";
+      const redirectUri=process.env.INSTAGRAM_REDIRECT_URI||process.env.META_INSTAGRAM_REDIRECT_URI||"http://localhost:8787/auth/instagram/callback";
       const clientSecret=process.env.INSTAGRAM_CLIENT_SECRET||process.env.META_CLIENT_SECRET;
       if(!clientId||!clientSecret||!redirectUri){res.statusCode=500;res.end(JSON.stringify({error:"instagram_oauth_not_configured",message:"Configure o Login do Instagram no Meta e defina a URL de callback."}));return;}
       const state=createOAuthState(); oauthStates.add(state);
@@ -341,7 +341,7 @@ const server = await import("node:http").then(({ createServer }) =>
       try{
         const clientId=process.env.INSTAGRAM_CLIENT_ID||process.env.META_CLIENT_ID;
         const clientSecret=process.env.INSTAGRAM_CLIENT_SECRET||process.env.META_CLIENT_SECRET;
-        const redirectUri=process.env.INSTAGRAM_REDIRECT_URI||process.env.META_INSTAGRAM_REDIRECT_URI||"https://dornelas-ia.onrender.com/auth/instagram/callback";
+        const redirectUri=process.env.INSTAGRAM_REDIRECT_URI||process.env.META_INSTAGRAM_REDIRECT_URI||"http://localhost:8787/auth/instagram/callback";
         const token=await exchangeInstagramCode({clientId,clientSecret,redirectUri,code});
         const longLived=await exchangeForLongLivedInstagramToken({clientSecret,accessToken:token.access_token});
         const accessToken=longLived.access_token||token.access_token;
