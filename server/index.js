@@ -60,7 +60,7 @@ function cleanJson(text) {
 }
 
 async function fetchSiteSnapshot() {
-  const url=process.env.SITE_URL || "https://iinteligenci.github.io/dorn/";
+  const url=process.env.SITE_URL || "https://iinteligenci.github.io/Site-dornelas/";
   const response=await fetch(url,{headers:{"User-Agent":"Dornelas-IA/1.0"}});
   if(!response.ok) throw new Error("Site retornou HTTP "+response.status);
   const html=await response.text();
@@ -731,7 +731,7 @@ Não invente estoque, avaliações, resultados ou promoções.`,
       const configured=[
         ["META_CLIENT_ID","Meta OAuth"],["META_CLIENT_SECRET","Meta OAuth secret"],["META_CONFIG_ID","Meta Login configuration"],
         ["META_REDIRECT_URI","Meta callback"],["GOOGLE_CLIENT_ID","Google OAuth"],["GOOGLE_CLIENT_SECRET","Google OAuth secret"],["GOOGLE_REDIRECT_URI","Google callback"],
-        ["OPENAI_API_KEY","IA"],["AI_MODEL","modelo IA"],["AI_IMAGE_MODEL","geração de imagem"],["GITHUB_TOKEN","armazenamento de dados/ativos"],
+        ["LOVABLE_API_KEY","IA"],["AI_MODEL","modelo IA"],["AI_IMAGE_MODEL","geração de imagem"],["GITHUB_TOKEN","armazenamento de dados/ativos"],
         ["CONTENT_ASSET_REPO","repositório de dados/ativos"],["CONTENT_ASSET_BRANCH","branch de dados"],["SITE_URL","site/catalogo"],["SCHEDULE_FILE","agenda"],
         ["META_PERSIST_FILE","persistência Meta"],["SCHEDULER_SECRET","scheduler"],["DORNELAS_SCHEDULER_SECRET","scheduler alternativo"],
         ["INSTAGRAM_CLIENT_ID","Instagram Login"],["INSTAGRAM_CLIENT_SECRET","Instagram Login secret"],["INSTAGRAM_REDIRECT_URI","Instagram callback"]
