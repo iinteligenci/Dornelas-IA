@@ -103,13 +103,14 @@ function App(){
   </header>
   <main>
    {tab==="central"&&<Central meta={meta} site={site} health={health} audit={audit} loading={loading} connect={connect} runAudit={runAudit} repair={repair} message={message} openChat={openChat} setTab={setTab}/>}
+   {tab==="aquisicao"&&<Acquisition openChat={openChat}/>}
    {tab==="chat"&&<Chat initialPrompt={chatPrompt}/>}
    {tab==="conteudo"&&<Content setTab={setTab} openChat={openChat}/>}
    {tab==="agenda"&&<Agenda openChat={openChat}/>}
    {tab==="config"&&<Config meta={meta} connect={connect} refresh={refresh}/>}
   </main>
   <nav className="bottom-nav">
-   {[["central","⌂","Central"],["chat","✦","IA"],["conteudo","▣","Conteúdo"],["agenda","◷","Agenda"],["config","⚙","Config."]].map(([id,icon,label])=>
+   {[["central","⌂","Central"],["aquisicao","↗","Aquisição"],["chat","✦","IA"],["conteudo","▣","Conteúdo"],["agenda","◷","Agenda"],["config","⚙","Config."]].map(([id,icon,label])=>
     <button key={id} className={tab===id?"active":""} onClick={()=>setTab(id)}>{icon}<span>{label}</span></button>
    )}
   </nav>
@@ -172,6 +173,78 @@ function Central({meta,site,health,audit,loading,connect,runAudit,repair,message
 
 function Action({title,text,button,onClick}){return <div className="next-action"><b>{title}</b><p>{text}</p><button className="secondary" onClick={onClick}>{button}</button></div>}
 function Metric({title,value,note}){return <div className="metric"><span>{title}</span><strong>{value}</strong><small>{note}</small></div>}
+
+
+function Acquisition({openChat}){
+ const [campaigns,setCampaigns]=useState(()=>{try{return JSON.parse(localStorage.getItem("dornelas-campaigns")||"[]")}catch{return[]}});
+ const [name,setName]=useState("");
+ const [channel,setChannel]=useState("Instagram");
+ const [destination,setDestination]=useState("https://iinteligenci.github.io/Site-dornelas/");
+ const [selected,setSelected]=useState("");
+ const [edit,setEdit]=useState({clicks:"",leads:"",orders:"",revenue:"",spend:""});
+ const [notice,setNotice]=useState("");
+ useEffect(()=>{localStorage.setItem("dornelas-campaigns",JSON.stringify(campaigns))},[campaigns]);
+ const money=n=>Number(n||0).toLocaleString("pt-BR",{style:"currency",currency:"BRL"});
+ const validUrl=value=>{try{const u=new URL(value);return u.protocol==="https:"||u.protocol==="http:"}catch{return false}};
+ const buildLink=(campaign)=>{try{const u=new URL(campaign.destination);u.searchParams.set("utm_source",campaign.channel.toLowerCase().replace(/[^a-z0-9]+/g,"_"));u.searchParams.set("utm_medium","social");u.searchParams.set("utm_campaign",campaign.slug);return u.toString()}catch{return campaign.destination}};
+ const slugify=s=>String(s).normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase().replace(/[^a-z0-9]+/g,"_").replace(/^_|_$/g,"");
+ const add=()=>{
+  if(!name.trim()){setNotice("Dê um nome para a campanha.");return}
+  if(!validUrl(destination)){setNotice("Informe um endereço válido começando com https://.");return}
+  const item={id:Date.now().toString(),name:name.trim(),channel,destination,slug:slugify(name)||("campanha_"+Date.now()),createdAt:new Date().toISOString(),clicks:0,leads:0,orders:0,revenue:0,spend:0};
+  setCampaigns(v=>[item,...v]);setSelected(item.id);setName("");setNotice("Campanha criada. Copie o link marcado e use esse link em todas as divulgações desta campanha.");
+ };
+ const choose=id=>{const item=campaigns.find(x=>x.id===id);setSelected(id);setEdit(item?{clicks:String(item.clicks||0),leads:String(item.leads||0),orders:String(item.orders||0),revenue:String(item.revenue||0),spend:String(item.spend||0)}:{clicks:"",leads:"",orders:"",revenue:"",spend:""});setNotice("")};
+ const saveResults=()=>{
+  const numbers={};for(const key of ["clicks","leads","orders","revenue","spend"]){numbers[key]=Number(edit[key]||0);if(!Number.isFinite(numbers[key])||numbers[key]<0){setNotice("Use apenas números iguais ou maiores que zero.");return}}
+  if(numbers.leads>numbers.clicks&&numbers.clicks>0){setNotice("Leads não podem ser maiores que cliques. Confira os números.");return}
+  if(numbers.orders>numbers.leads&&numbers.leads>0){setNotice("Pedidos não podem ser maiores que leads. Confira os números.");return}
+  setCampaigns(v=>v.map(x=>x.id===selected?{...x,...numbers,updatedAt:new Date().toISOString()}:x));setNotice("Resultados salvos neste aparelho.");
+ };
+ const total=key=>campaigns.reduce((s,x)=>s+Number(x[key]||0),0);
+ const selectedCampaign=campaigns.find(x=>x.id===selected);
+ const link=selectedCampaign?buildLink(selectedCampaign):"";
+ const exportCsv=()=>{
+  const rows=[["Campanha","Canal","Criada em","Cliques informados","Leads","Pedidos","Faturamento (R$)","Investimento (R$)"],...campaigns.map(x=>[x.name,x.channel,new Date(x.createdAt).toLocaleDateString("pt-BR"),x.clicks,x.leads,x.orders,x.revenue,x.spend])];
+  const csv=rows.map(row=>row.map(v=>'"'+String(v??"").replace(/"/g,'""')+'"').join(";")).join("\n");
+  const blob=new Blob(["\uFEFF"+csv],{type:"text/csv;charset=utf-8;"});const url=URL.createObjectURL(blob);const a=document.createElement("a");a.href=url;a.download="dornelas-resultados-campanhas.csv";a.click();URL.revokeObjectURL(url);
+ };
+ const deleteCampaign=id=>{if(!window.confirm("Excluir esta campanha e os resultados registrados?"))return;setCampaigns(v=>v.filter(x=>x.id!==id));if(selected===id){setSelected("");setEdit({clicks:"",leads:"",orders:"",revenue:"",spend:""})}};
+ return <div className="page">
+  <header className="section-head"><div><span className="eyebrow">AQUISIÇÃO DE CLIENTES</span><h1>Campanha que vira pedido.</h1><p>Organize cada divulgação, use um link diferente por campanha e registre o resultado comercial para descobrir o que realmente vende.</p></div><div className="hero-actions"><button className="secondary" onClick={()=>openChat("Planeje uma campanha de aquisição para a Dornelas com foco em conseguir novos clientes e gerar pedidos pelo site. Defina público, oferta, criativo, CTA e como medir os resultados. Não invente preço nem estoque.")}>Planejar com IA</button><button className="secondary" onClick={exportCsv} disabled={!campaigns.length}>Exportar CSV</button></div></header>
+  <div className="grid"><Metric title="Campanhas" value={campaigns.length} note="registradas neste aparelho"/><Metric title="Pedidos" value={total("orders")} note="resultados informados manualmente"/><Metric title="Faturamento" value={money(total("revenue"))} note="valor atribuído às campanhas"/><Metric title="Investimento" value={money(total("spend"))} note="gasto informado manualmente"/></div>
+  <section className="card">
+   <span className="eyebrow">01 · CRIAR CAMPANHA</span><h2>Uma divulgação, um link.</h2>
+   <div className="acq-form">
+    <label>Nome da campanha<input value={name} onChange={e=>setName(e.target.value)} placeholder="Ex.: Combo bacon e linguiça — outubro"/></label>
+    <label>Canal<select value={channel} onChange={e=>setChannel(e.target.value)}><option>Instagram</option><option>WhatsApp</option><option>Facebook</option><option>Google</option><option>Influenciador</option><option>Outro</option></select></label>
+    <label className="wide">Link de destino<input value={destination} onChange={e=>setDestination(e.target.value)} placeholder="https://..."/></label>
+   </div>
+   <p className="muted">O link recebe etiquetas UTM para identificar a origem. A contagem automática de visitas e pedidos ainda depende de instrumentar o site; por enquanto, registre os resultados observados na tela abaixo.</p>
+   <button className="primary" onClick={add}>Criar campanha e gerar link</button>
+  </section>
+  {notice&&<div className="notice">{notice}</div>}
+  <section className="card">
+   <div className="cardhead"><div><span className="eyebrow">02 · ACOMPANHAR RESULTADOS</span><h2>Campanhas registradas</h2></div></div>
+   {!campaigns.length?<div className="empty">Nenhuma campanha ainda. Crie a primeira e use o link exclusivo na divulgação.</div>:<div className="campaign-list">{campaigns.map(x=><div className={"campaign-row "+(selected===x.id?"chosen":"")} key={x.id}><button className="campaign-select" onClick={()=>choose(x.id)}><b>{x.name}</b><small>{x.channel} · criada em {new Date(x.createdAt).toLocaleDateString("pt-BR")}</small><span>{x.orders||0} pedidos · {money(x.revenue||0)}</span></button><button className="mini" onClick={async()=>{try{await copyText(buildLink(x));setNotice("Link da campanha copiado.")}catch{setNotice("Não foi possível copiar o link.")}}}>Copiar link</button><button className="mini danger" onClick={()=>deleteCampaign(x.id)}>Excluir</button></div>)}</div>}
+  </section>
+  {selectedCampaign&&<section className="card">
+   <span className="eyebrow">03 · RESULTADO COMERCIAL</span><h2>{selectedCampaign.name}</h2>
+   <label className="wide">Link marcado para divulgar<input readOnly value={link}/></label>
+   <div className="hero-actions"><button className="primary" onClick={()=>copyText(link).then(()=>setNotice("Link copiado para a área de transferência."))}>Copiar link marcado</button><button className="secondary" onClick={()=>window.open(link,"_blank","noopener,noreferrer")}>Testar destino</button></div>
+   <div className="acq-form results-form">
+    <label>Cliques observados<input type="number" min="0" value={edit.clicks} onChange={e=>setEdit(v=>({...v,clicks:e.target.value}))}/></label>
+    <label>Leads / conversas<input type="number" min="0" value={edit.leads} onChange={e=>setEdit(v=>({...v,leads:e.target.value}))}/></label>
+    <label>Pedidos fechados<input type="number" min="0" value={edit.orders} onChange={e=>setEdit(v=>({...v,orders:e.target.value}))}/></label>
+    <label>Faturamento (R$)<input type="number" min="0" step="0.01" value={edit.revenue} onChange={e=>setEdit(v=>({...v,revenue:e.target.value}))}/></label>
+    <label>Investimento (R$)<input type="number" min="0" step="0.01" value={edit.spend} onChange={e=>setEdit(v=>({...v,spend:e.target.value}))}/></label>
+   </div>
+   <div className="grid"><Metric title="Conversão em pedidos" value={(Number(edit.clicks)>0?(Number(edit.orders||0)/Number(edit.clicks)*100):0).toFixed(1)+"%"} note="pedidos ÷ cliques informados"/><Metric title="Custo por pedido" value={Number(edit.orders)>0?money(Number(edit.spend||0)/Number(edit.orders)):money(0)} note="investimento ÷ pedidos"/><Metric title="Saldo antes de custos" value={money(Number(edit.revenue||0)-Number(edit.spend||0))} note="não é lucro líquido"/></div>
+   <button className="primary" onClick={saveResults}>Salvar resultados</button>
+  </section>}
+  <section className="card"><span className="eyebrow">COMO USAR NA PRÁTICA</span><h2>Rotina de 5 minutos por campanha</h2><ol className="muted"><li>Crie uma campanha para cada oferta ou canal diferente.</li><li>Copie o link marcado e use-o naquela divulgação específica.</li><li>Registre cliques e conversas apenas quando tiver números confiáveis.</li><li>Conte pedidos e faturamento que vieram daquela campanha.</li><li>Compare resultados antes de repetir ou investir mais dinheiro.</li></ol><p className="muted">Os dados ficam salvos no armazenamento local deste navegador/aparelho. Não são enviados ao servidor e não aparecem automaticamente em outros dispositivos. Não registre nomes, telefones ou outros dados pessoais aqui.</p></section>
+ </div>
+}
 
 function Chat({initialPrompt}){
  const [messages,setMessages]=useState([{role:"assistant",text:"Sou o cérebro comercial da Dornelas. Posso trabalhar agora com o catálogo do site, tendências públicas e os prints de Insights que você enviar. Minha meta é transformar análise em pedidos."}]);
