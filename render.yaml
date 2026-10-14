@@ -34,3 +34,7 @@ services:
         sync: false
       - key: CONTENT_ASSET_REPO
         value: "iinteligenci/dorn"
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: ADMIN_SESSION_SECRET
+        generateValue: true
