@@ -109,11 +109,17 @@ test("admin data APIs require session and report missing private-store configura
   assert.match(authenticated.json?.message || "", /DATA_STORE_TOKEN|DATA_STORE_REPO/i);
 });
 
-test("unknown root route returns JSON 404", async () => {
+test("GET / returns service status and useful endpoints", async () => {
   const response = await request("/");
-  assert.equal(response.status, 404);
+  assert.equal(response.status, 200);
   assert.match(response.headers.get("content-type"), /application\/json/i);
-  assert.deepEqual(response.json, { error: "not_found" });
+  assert.deepEqual(response.json, {
+    ok: true,
+    service: "dornelas-ia-agent",
+    status: "running",
+    admin: "/admin",
+    health: "/health"
+  });
 });
 
 test("admin routes reject requests without a session", async () => {

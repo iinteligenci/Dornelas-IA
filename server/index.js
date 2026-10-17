@@ -926,7 +926,7 @@ Não invente estoque, avaliações, resultados ou promoções.`,
       const configured=[
         ["META_CLIENT_ID","Meta OAuth"],["META_CLIENT_SECRET","Meta OAuth secret"],["META_CONFIG_ID","Meta Login configuration"],
         ["META_REDIRECT_URI","Meta callback"],["GOOGLE_CLIENT_ID","Google OAuth"],["GOOGLE_CLIENT_SECRET","Google OAuth secret"],["GOOGLE_REDIRECT_URI","Google callback"],
-        ["AI_API_KEY","IA"],["AI_MODEL","modelo IA"],["AI_IMAGE_MODEL","geração de imagem"],["GITHUB_TOKEN","ativos públicos"],
+        ["AI_API_KEY","chave do provedor de IA"],["AI_API_BASE_URL","URL base do provedor de IA"],["AI_MODEL","modelo IA"],["AI_IMAGE_MODEL","geração de imagem"],["GITHUB_TOKEN","ativos públicos"],
         ["CONTENT_ASSET_REPO","repositório de ativos públicos"],["CONTENT_ASSET_BRANCH","branch de ativos"],["DATA_STORE_TOKEN","token do repositório privado de dados"],["DATA_STORE_REPO","repositório privado de dados"],["DATA_STORE_BRANCH","branch de dados"],["TOKEN_ENCRYPTION_KEY","criptografia de tokens OAuth"],["SITE_URL","site/catalogo"],["SCHEDULE_FILE","agenda"],
         ["META_PERSIST_FILE","persistência Meta"],["SCHEDULER_SECRET","chamador externo do scheduler"],
         ["INSTAGRAM_CLIENT_ID","Instagram Login"],["INSTAGRAM_CLIENT_SECRET","Instagram Login secret"],["INSTAGRAM_REDIRECT_URI","Instagram callback"]
