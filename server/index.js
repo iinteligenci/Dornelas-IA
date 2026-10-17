@@ -307,7 +307,14 @@ const server = await import("node:http").then(({ createServer }) =>
     const requestUrl = new URL(req.url, "http://localhost");
     const origin = req.headers.origin;
     const allowedOrigin = "https://iinteligenci.github.io";
-    if (origin && origin !== allowedOrigin) { res.statusCode = 403; res.end(JSON.stringify({ error: "origin_not_allowed" })); return; }
+    const allowedOrigins = new Set([allowedOrigin, "https://dornelas-ia.onrender.com"]);
+    if (origin && !allowedOrigins.has(origin)) { res.statusCode = 403; res.end(JSON.stringify({ error: "origin_not_allowed" })); return; }
+
+    if (req.method === "GET" && requestUrl.pathname === "/") {
+      res.setHeader("Cache-Control", "no-store");
+      res.end(JSON.stringify({ ok: true, service: "dornelas-ia-agent", status: "running", admin: "/admin", health: "/health" }));
+      return;
+    }
 
     if (req.method === "GET" && (requestUrl.pathname === "/admin" || requestUrl.pathname === "/admin/")) {
       try {
