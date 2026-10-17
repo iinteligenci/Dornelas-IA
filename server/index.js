@@ -368,9 +368,49 @@ const server = await import("node:http").then(({ createServer }) =>
       if (req.headers["x-scheduler-secret"] !== schedulerSecret) { res.statusCode = 401; res.end(JSON.stringify({ error: "invalid_scheduler_secret" })); return; }
     }
     const protectedRoute = (req.method !== "GET" && !requestUrl.pathname.startsWith("/auth/")) ||
-      (req.method === "GET" && (requestUrl.pathname.startsWith("/agent/") || protectedGetPaths.has(requestUrl.pathname)));
+      (req.method === "GET" && (requestUrl.pathname.startsWith("/agent/") || requestUrl.pathname.startsWith("/admin/api/") || protectedGetPaths.has(requestUrl.pathname)));
     if (protectedRoute && !schedulerRunRequest && !validAdminSession(req)) {
       res.statusCode = 401; res.end(JSON.stringify({ error: "admin_login_required", message: "Entre com a senha administrativa para usar os recursos protegidos." })); return;
+    }
+
+    if (requestUrl.pathname.startsWith("/admin/api/approvals")) {
+      const queuePath = "generated/ai/approval-queue.json";
+      try {
+        if (req.method === "GET" && requestUrl.pathname === "/admin/api/approvals") {
+          const saved = await githubJsonGet(queuePath);
+          res.end(JSON.stringify({ ok: true, items: Array.isArray(saved.content) ? saved.content : [] })); return;
+        }
+        if (req.method === "POST" && requestUrl.pathname === "/admin/api/approvals") {
+          const input = JSON.parse(await readBody(req) || "{}");
+          if (!String(input.caption || "").trim()) throw new Error("caption é obrigatório.");
+          const current = await githubJsonGet(queuePath); const items = Array.isArray(current.content) ? current.content : [];
+          const item = { id: crypto.randomUUID(), headline: String(input.headline || "Rascunho Dornelas"), caption: String(input.caption).trim(), imageUrl: input.imageUrl || null, videoUrl: input.videoUrl || null, status: "pending", createdAt: new Date().toISOString(), approvedAt: null };
+          items.push(item); await githubJsonPut(queuePath, items, current.sha || undefined);
+          res.statusCode = 201; res.end(JSON.stringify({ ok: true, item })); return;
+        }
+        const actionMatch = requestUrl.pathname.match(/^\/admin\/api\/approvals\/([^/]+)\/(approve|reject)$/);
+        if (req.method === "POST" && actionMatch) {
+          const [, id, action] = actionMatch; const current = await githubJsonGet(queuePath); const items = Array.isArray(current.content) ? current.content : [];
+          const item = items.find(entry => entry.id === id);
+          if (!item) { res.statusCode = 404; res.end(JSON.stringify({ error: "approval_item_not_found" })); return; }
+          if (item.status !== "pending") { res.statusCode = 409; res.end(JSON.stringify({ error: "approval_item_already_reviewed", status: item.status })); return; }
+          item.status = action === "approve" ? "approved" : "rejected";
+          item.reviewedAt = new Date().toISOString();
+          await githubJsonPut(queuePath, items, current.sha || undefined);
+          res.end(JSON.stringify({ ok: true, item, externalActionPerformed: false, message: "Estado de aprovação salvo. Nenhuma publicação foi executada." })); return;
+        }
+        res.statusCode = 404; res.end(JSON.stringify({ error: "not_found" })); return;
+      } catch (error) { res.statusCode = 502; res.end(JSON.stringify({ error: "approval_queue_failed", message: error.message })); return; }
+    }
+
+    if (req.method === "GET" && requestUrl.pathname === "/admin/api/history") {
+      try {
+        const [queue, schedule] = await Promise.all([githubJsonGet("generated/ai/approval-queue.json"), githubJsonGet(schedulerPath())]);
+        const approvals = (Array.isArray(queue.content) ? queue.content : []).filter(item => item.status !== "pending").map(item => ({ type: "approval", ...item }));
+        const scheduled = (Array.isArray(schedule.content) ? schedule.content : []).filter(item => ["published", "failed", "simulated"].includes(item.status)).map(item => ({ type: "schedule", ...item }));
+        res.end(JSON.stringify({ ok: true, items: [...approvals, ...scheduled].sort((a,b) => String(b.reviewedAt || b.publishedAt || b.createdAt || "").localeCompare(String(a.reviewedAt || a.publishedAt || a.createdAt || ""))) }));
+      } catch (error) { res.statusCode = 502; res.end(JSON.stringify({ error: "history_read_failed", message: error.message })); }
+      return;
     }
 
     if (req.method === "GET" && req.url === "/auth/meta") {
@@ -774,8 +814,13 @@ Não invente estoque, avaliações, resultados ou promoções.`,
           try{
             if(!metaConnection?.accessToken) throw new Error("Instagram / Meta não conectada.");
             const result=await publishInstagramMedia({mediaType:item.mediaType==="REELS"?"REELS":"IMAGE",imageUrl:item.imageUrl,videoUrl:item.videoUrl,caption:item.caption});
-            item.status="published"; item.publishedAt=new Date().toISOString(); item.publishedId=result.published?.id||null;
-            results.push({id:item.id,status:"published"});
+            if (result.simulated) {
+              item.status="simulated"; item.simulatedAt=new Date().toISOString(); item.externalActionPerformed=false;
+              results.push({id:item.id,status:"simulated",externalActionPerformed:false});
+            } else {
+              item.status="published"; item.publishedAt=new Date().toISOString(); item.publishedId=result.published?.id||null;
+              results.push({id:item.id,status:"published",externalActionPerformed:true});
+            }
           }catch(error){item.status="failed";item.error=error.message;results.push({id:item.id,status:"failed",error:error.message});}
         }
         if(due.length) await githubJsonPut(schedulerPath(),list,current.sha);

@@ -97,6 +97,18 @@ test("admin panel serves from the backend and session status exposes only config
   assert.equal(JSON.stringify(anonymous.json).includes(ADMIN_SESSION_SECRET_FOR_TEST), false);
 });
 
+test("admin data APIs require session and report missing private-store configuration", async () => {
+  const anonymous = await request("/admin/api/approvals");
+  assert.equal(anonymous.status, 401);
+  assert.equal(anonymous.json?.error, "admin_login_required");
+  const login = await request("/auth/login", { method: "POST", body: { password: ADMIN_PASSWORD_FOR_TEST } });
+  const cookie = (login.headers.get("set-cookie") || "").split(";")[0];
+  const authenticated = await request("/admin/api/approvals", { cookie });
+  assert.equal(authenticated.status, 502);
+  assert.equal(authenticated.json?.error, "approval_queue_failed");
+  assert.match(authenticated.json?.message || "", /DATA_STORE_TOKEN|DATA_STORE_REPO/i);
+});
+
 test("unknown root route returns JSON 404", async () => {
   const response = await request("/");
   assert.equal(response.status, 404);
