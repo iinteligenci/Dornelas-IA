@@ -20,12 +20,13 @@ async function freePort() {
   return port;
 }
 
-async function request(path, { method = "GET", body, cookie } = {}) {
+async function request(path, { method = "GET", body, cookie, headers: extraHeaders = {} } = {}) {
   const response = await fetch(baseUrl + path, {
     method,
     headers: {
       ...(body === undefined ? {} : { "Content-Type": "application/json" }),
-      ...(cookie ? { Cookie: cookie } : {})
+      ...(cookie ? { Cookie: cookie } : {}),
+      ...extraHeaders
     },
     body: body === undefined ? undefined : JSON.stringify(body)
   });
@@ -41,14 +42,15 @@ before(async () => {
   const env = { ...process.env };
   for (const name of [
     "AI_API_BASE_URL", "AI_API_KEY", "AI_MODEL", "AI_IMAGE_MODEL", "GITHUB_TOKEN",
-    "CONTENT_ASSET_REPO", "CONTENT_ASSET_BRANCH", "META_ACCESS_TOKEN", "META_CLIENT_SECRET",
-    "GOOGLE_CLIENT_SECRET", "INSTAGRAM_CLIENT_SECRET", "SCHEDULER_SECRET", "DORNELAS_SCHEDULER_SECRET", "META_PUBLISH_MODE"
+    "CONTENT_ASSET_REPO", "CONTENT_ASSET_BRANCH", "DATA_STORE_TOKEN", "DATA_STORE_REPO", "DATA_STORE_BRANCH", "TOKEN_ENCRYPTION_KEY", "META_ACCESS_TOKEN", "META_CLIENT_SECRET",
+    "GOOGLE_CLIENT_SECRET", "INSTAGRAM_CLIENT_SECRET", "SCHEDULER_SECRET", "META_PUBLISH_MODE"
   ]) delete env[name];
   Object.assign(env, {
     PORT: String(port),
     ADMIN_PASSWORD: ADMIN_PASSWORD_FOR_TEST,
     ADMIN_SESSION_SECRET: ADMIN_SESSION_SECRET_FOR_TEST,
     SITE_URL: "http://127.0.0.1:1/",
+    SCHEDULER_SECRET: "scheduler-test-secret-not-a-real-credential",
     NODE_ENV: "test"
   });
   serverProcess = spawn(process.execPath, ["index.js"], { cwd: new URL("..", import.meta.url), env, stdio: ["ignore", "pipe", "pipe"] });
@@ -94,7 +96,6 @@ test("admin routes reject requests without a session", async () => {
   for (const [method, path, body] of [
     ["POST", "/agent/research", { focus: "test" }],
     ["GET", "/agent/schedule"],
-    ["POST", "/agent/scheduler/run", {}],
     ["GET", "/meta/status"],
     ["GET", "/meta/overview"],
     ["GET", "/meta/accounts"],
@@ -133,6 +134,16 @@ test("Meta and Google OAuth callbacks remain reachable without an admin session"
   assert.equal(google.json?.error, "invalid_oauth_state");
 });
 
+test("scheduler endpoint authenticates an external caller with the single SCHEDULER_SECRET", async () => {
+  const denied = await request("/agent/scheduler/run", { method: "POST", body: {} });
+  assert.equal(denied.status, 401);
+  assert.equal(denied.json?.error, "invalid_scheduler_secret");
+  const allowed = await request("/agent/scheduler/run", { method: "POST", headers: { "x-scheduler-secret": "scheduler-test-secret-not-a-real-credential" }, body: {} });
+  assert.equal(allowed.status, 502);
+  assert.equal(allowed.json?.error, "scheduler_run_failed");
+  assert.match(allowed.json?.message || "", /DATA_STORE_TOKEN|DATA_STORE_REPO/i);
+});
+
 test("/meta/publish defaults to simulation when META_PUBLISH_MODE is absent", async () => {
   assert.equal(process.env.META_PUBLISH_MODE, undefined);
   assert.ok(adminCookie, "login test must establish the test session first");
@@ -162,7 +173,7 @@ test("agent routes report missing external configuration rather than inventing r
   const schedule = await request("/agent/schedule", { cookie: adminCookie });
   assert.equal(schedule.status, 502);
   assert.equal(schedule.json?.error, "schedule_read_failed");
-  assert.match(schedule.json?.message || "", /GITHUB_TOKEN/i);
+  assert.match(schedule.json?.message || "", /DATA_STORE_TOKEN|DATA_STORE_REPO/i);
 });
 
 test("image, clip, campaign and scheduler routes fail closed when dependencies or inputs are missing", async () => {
@@ -187,10 +198,10 @@ test("image, clip, campaign and scheduler routes fail closed when dependencies o
   assert.equal(scheduleWrite.json?.error, "schedule_write_failed");
   assert.match(scheduleWrite.json?.message || "", /scheduledFor/i);
 
-  const schedulerRun = await request("/agent/scheduler/run", { method: "POST", cookie: adminCookie, body: {} });
+  const schedulerRun = await request("/agent/scheduler/run", { method: "POST", cookie: adminCookie, headers: { "x-scheduler-secret": "scheduler-test-secret-not-a-real-credential" }, body: {} });
   assert.equal(schedulerRun.status, 502);
   assert.equal(schedulerRun.json?.error, "scheduler_run_failed");
-  assert.match(schedulerRun.json?.message || "", /GITHUB_TOKEN/i);
+  assert.match(schedulerRun.json?.message || "", /DATA_STORE_TOKEN|DATA_STORE_REPO/i);
 });
 
 test("campaign approval validates human approval but simulates external publication", async () => {

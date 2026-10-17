@@ -12,7 +12,8 @@ try {
   // The API can start without ffmpeg; clip generation reports the missing dependency when requested.
 }
 import { runAI, generateImage } from "./integrations/ai.js";
-import { publishPublicAsset, githubJsonGet, githubJsonPut } from "./integrations/assets.js";
+import { publishPublicAsset } from "./integrations/assets.js";
+import { githubJsonGet, githubJsonPut } from "./integrations/data-store.js";
 import { SYSTEM_PROMPT, CAMPAIGN_PROMPT, CONTENT_PLAN_PROMPT, RESEARCH_PROMPT, SITE_ANALYSIS_PROMPT, REUSE_PROMPT } from "./agent/ai-prompts.js";
 import { normalizeKnowledge, knowledgeInstructions } from "./data/knowledge.js";
 
@@ -57,6 +58,11 @@ function decryptCookie(secret, value) {
     decipher.setAuthTag(data.subarray(12, 28));
     return decipher.update(data.subarray(28), undefined, "utf8") + decipher.final("utf8");
   } catch { return null; }
+}
+
+function tokenEncryptionKey() {
+  const value = process.env.TOKEN_ENCRYPTION_KEY;
+  return value && value.length >= 32 ? value : null;
 }
 
 const port = Number(process.env.PORT || 8787);
@@ -125,12 +131,12 @@ function metaPersistPath(){ return process.env.META_PERSIST_FILE || "generated/a
 
 async function loadPersistedMetaConnection(){
   if(metaConnection?.accessToken) return true;
-  if(!process.env.GITHUB_TOKEN || !process.env.META_CLIENT_SECRET) return false;
+  if(!process.env.DATA_STORE_TOKEN || !process.env.DATA_STORE_REPO || (!tokenEncryptionKey() && !process.env.META_CLIENT_SECRET)) return false;
   try{
     const saved=await githubJsonGet(metaPersistPath());
     if(!saved.exists) return false;
     const encrypted=saved.content?.encrypted;
-    const parsed=encrypted?decryptCookie(process.env.META_CLIENT_SECRET,encrypted):null;
+    const parsed=encrypted ? (decryptCookie(tokenEncryptionKey(), encrypted) || decryptCookie(process.env.META_CLIENT_SECRET, encrypted)) : null;
     if(!parsed) return false;
     const data=JSON.parse(parsed);
     if(!data.accessToken) return false;
@@ -141,20 +147,21 @@ async function loadPersistedMetaConnection(){
 
 async function loadPersistedGoogleConnection(){
   if(googleConnection?.refreshToken||googleConnection?.accessToken) return true;
-  if(!process.env.GITHUB_TOKEN||!process.env.GOOGLE_CLIENT_SECRET) return false;
+  if(!process.env.DATA_STORE_TOKEN||!process.env.DATA_STORE_REPO||(!tokenEncryptionKey()&&!process.env.GOOGLE_CLIENT_SECRET)) return false;
   try{
     const saved=await githubJsonGet("generated/ai/google-connection.json");
     if(!saved.exists) return false;
     const encrypted=saved.content?.encrypted;
-    const parsed=encrypted?decryptCookie(process.env.GOOGLE_CLIENT_SECRET,encrypted):null;
+    const parsed=encrypted ? (decryptCookie(tokenEncryptionKey(), encrypted) || decryptCookie(process.env.GOOGLE_CLIENT_SECRET, encrypted)) : null;
     if(!parsed) return false;
     googleConnection=JSON.parse(parsed);
     return Boolean(googleConnection?.refreshToken||googleConnection?.accessToken);
   }catch(error){console.error("Google persisted connection load failed:",error.message);return false;}
 }
 async function persistGoogleConnection(){
-  if(!process.env.GITHUB_TOKEN||!process.env.GOOGLE_CLIENT_SECRET||!googleConnection) return;
-  const encrypted=cookieToken(process.env.GOOGLE_CLIENT_SECRET,JSON.stringify(googleConnection));
+  if(!googleConnection) return;
+  if(!tokenEncryptionKey()) { console.error("Google token persistence disabled: TOKEN_ENCRYPTION_KEY ausente ou com menos de 32 caracteres."); return; }
+  const encrypted=cookieToken(tokenEncryptionKey(),JSON.stringify(googleConnection));
   try{
     const current=await githubJsonGet("generated/ai/google-connection.json");
     await githubJsonPut("generated/ai/google-connection.json",{encrypted,updatedAt:new Date().toISOString()},current.sha||undefined);
@@ -183,8 +190,9 @@ async function getGoogleBusinessData(){
 }
 
 async function persistMetaConnection(){
-  if(!process.env.GITHUB_TOKEN || !metaConnection?.accessToken) return;
-  const encrypted=cookieToken(process.env.META_CLIENT_SECRET,JSON.stringify({accessToken:metaConnection.accessToken,expiresAt:metaConnection.expiresAt||null,authType:metaConnection.authType||"facebook_login",instagramUserId:metaConnection.instagramUserId||null}));
+  if(!metaConnection?.accessToken) return;
+  if(!tokenEncryptionKey()) { console.error("Meta token persistence disabled: TOKEN_ENCRYPTION_KEY ausente ou com menos de 32 caracteres."); return; }
+  const encrypted=cookieToken(tokenEncryptionKey(),JSON.stringify({accessToken:metaConnection.accessToken,expiresAt:metaConnection.expiresAt||null,authType:metaConnection.authType||"facebook_login",instagramUserId:metaConnection.instagramUserId||null}));
   try{
     const current=await githubJsonGet(metaPersistPath());
     await githubJsonPut(metaPersistPath(),{encrypted,updatedAt:new Date().toISOString()},current.sha);
@@ -321,9 +329,15 @@ const server = await import("node:http").then(({ createServer }) =>
     const protectedGetPaths = new Set([
       "/google/data", "/google/status", "/meta/data", "/meta/status", "/meta/overview", "/meta/accounts", "/site/analyze"
     ]);
+    const schedulerRunRequest = req.method === "POST" && requestUrl.pathname === "/agent/scheduler/run";
+    if (schedulerRunRequest) {
+      const schedulerSecret = process.env.SCHEDULER_SECRET;
+      if (!schedulerSecret) { res.statusCode = 503; res.end(JSON.stringify({ error: "scheduler_secret_not_configured", message: "Configure SCHEDULER_SECRET para habilitar o chamador externo." })); return; }
+      if (req.headers["x-scheduler-secret"] !== schedulerSecret) { res.statusCode = 401; res.end(JSON.stringify({ error: "invalid_scheduler_secret" })); return; }
+    }
     const protectedRoute = (req.method !== "GET" && !requestUrl.pathname.startsWith("/auth/")) ||
       (req.method === "GET" && (requestUrl.pathname.startsWith("/agent/") || protectedGetPaths.has(requestUrl.pathname)));
-    if (protectedRoute && !validAdminSession(req)) {
+    if (protectedRoute && !schedulerRunRequest && !validAdminSession(req)) {
       res.statusCode = 401; res.end(JSON.stringify({ error: "admin_login_required", message: "Entre com a senha administrativa para usar os recursos protegidos." })); return;
     }
 
@@ -721,8 +735,6 @@ Não invente estoque, avaliações, resultados ou promoções.`,
 
     if (req.method === "POST" && req.url === "/agent/scheduler/run") {
       await loadPersistedMetaConnection();
-      const schedulerSecret=process.env.SCHEDULER_SECRET||process.env.DORNELAS_SCHEDULER_SECRET;
-      if(schedulerSecret&&req.headers["x-scheduler-secret"]!==schedulerSecret){res.statusCode=401;res.end(JSON.stringify({error:"invalid_scheduler_secret"}));return;}
       try{
         const current=await githubJsonGet(schedulerPath()); const list=Array.isArray(current.content)?current.content:[]; const now=Date.now();
         const due=list.filter(x=>x.status==="scheduled"&&Date.parse(x.scheduledFor)<=now); const results=[];
@@ -812,9 +824,9 @@ Não invente estoque, avaliações, resultados ou promoções.`,
       const configured=[
         ["META_CLIENT_ID","Meta OAuth"],["META_CLIENT_SECRET","Meta OAuth secret"],["META_CONFIG_ID","Meta Login configuration"],
         ["META_REDIRECT_URI","Meta callback"],["GOOGLE_CLIENT_ID","Google OAuth"],["GOOGLE_CLIENT_SECRET","Google OAuth secret"],["GOOGLE_REDIRECT_URI","Google callback"],
-        ["AI_API_KEY","IA"],["AI_MODEL","modelo IA"],["AI_IMAGE_MODEL","geração de imagem"],["GITHUB_TOKEN","armazenamento de dados/ativos"],
-        ["CONTENT_ASSET_REPO","repositório de dados/ativos"],["CONTENT_ASSET_BRANCH","branch de dados"],["SITE_URL","site/catalogo"],["SCHEDULE_FILE","agenda"],
-        ["META_PERSIST_FILE","persistência Meta"],["SCHEDULER_SECRET","scheduler"],["DORNELAS_SCHEDULER_SECRET","scheduler alternativo"],
+        ["AI_API_KEY","IA"],["AI_MODEL","modelo IA"],["AI_IMAGE_MODEL","geração de imagem"],["GITHUB_TOKEN","ativos públicos"],
+        ["CONTENT_ASSET_REPO","repositório de ativos públicos"],["CONTENT_ASSET_BRANCH","branch de ativos"],["DATA_STORE_TOKEN","token do repositório privado de dados"],["DATA_STORE_REPO","repositório privado de dados"],["DATA_STORE_BRANCH","branch de dados"],["TOKEN_ENCRYPTION_KEY","criptografia de tokens OAuth"],["SITE_URL","site/catalogo"],["SCHEDULE_FILE","agenda"],
+        ["META_PERSIST_FILE","persistência Meta"],["SCHEDULER_SECRET","chamador externo do scheduler"],
         ["INSTAGRAM_CLIENT_ID","Instagram Login"],["INSTAGRAM_CLIENT_SECRET","Instagram Login secret"],["INSTAGRAM_REDIRECT_URI","Instagram callback"]
       ].map(([key,role])=>({key,role,configured:Boolean(process.env[key])}));
       res.end(JSON.stringify({ok:true,configured}));
@@ -936,7 +948,7 @@ Cada quickWin deve ser executável e verificável. Não invente dados. Se não h
         const google=await safe("google_business",async()=>await getGoogleBusinessData());
         const trends=await safe("public_trends",getPublicTrends);
         const schedule=await safe("schedule",async()=>{const s=await githubJsonGet(schedulerPath());return Array.isArray(s.content)?s.content:[]})||[];
-        const config=await safe("config",async()=>{const x={};for(const k of ["META_CLIENT_ID","META_CLIENT_SECRET","META_CONFIG_ID","META_REDIRECT_URI","GOOGLE_CLIENT_ID","GOOGLE_CLIENT_SECRET","GOOGLE_REDIRECT_URI","AI_API_KEY","AI_API_BASE_URL","AI_MODEL","AI_IMAGE_MODEL","GITHUB_TOKEN","CONTENT_ASSET_REPO","CONTENT_ASSET_BRANCH","SITE_URL","SCHEDULE_FILE","META_PERSIST_FILE","SCHEDULER_SECRET","DORNELAS_SCHEDULER_SECRET","INSTAGRAM_CLIENT_ID","INSTAGRAM_CLIENT_SECRET","INSTAGRAM_REDIRECT_URI"])x[k]=Boolean(process.env[k]);return x;});
+        const config=await safe("config",async()=>{const x={};for(const k of ["META_CLIENT_ID","META_CLIENT_SECRET","META_CONFIG_ID","META_REDIRECT_URI","GOOGLE_CLIENT_ID","GOOGLE_CLIENT_SECRET","GOOGLE_REDIRECT_URI","AI_API_KEY","AI_API_BASE_URL","AI_MODEL","AI_IMAGE_MODEL","GITHUB_TOKEN","CONTENT_ASSET_REPO","CONTENT_ASSET_BRANCH","DATA_STORE_TOKEN","DATA_STORE_REPO","DATA_STORE_BRANCH","TOKEN_ENCRYPTION_KEY","SITE_URL","SCHEDULE_FILE","META_PERSIST_FILE","SCHEDULER_SECRET","INSTAGRAM_CLIENT_ID","INSTAGRAM_CLIENT_SECRET","INSTAGRAM_REDIRECT_URI"])x[k]=Boolean(process.env[k]);return x;});
         const knowledge=normalizeKnowledge({site,catalog,instagram,google,trends,schedule,config});
         let aiAnalysis=null;
         try{const ai=await runAI({instructions:knowledgeInstructions(),input:JSON.stringify(knowledge).slice(0,45000)});aiAnalysis=cleanJson(ai.text);}catch(error){errors.push({source:"knowledge_ai",error:error.message});}
@@ -990,7 +1002,7 @@ Cada quickWin deve ser executável e verificável. Não invente dados. Se não h
     }
 
     if (req.method === "GET" && requestUrl.pathname === "/health") {
-      res.end(JSON.stringify({ ok: true, service: "dornelas-ia-agent", version: process.env.RENDER_GIT_COMMIT || process.env.GITHUB_SHA || "local", aiConfigured:Boolean(process.env.AI_API_BASE_URL && process.env.AI_API_KEY && process.env.AI_MODEL), imageConfigured:Boolean(process.env.AI_API_BASE_URL && process.env.AI_API_KEY && process.env.AI_IMAGE_MODEL), assetStorageConfigured:Boolean(process.env.GITHUB_TOKEN), schedulerConfigured:Boolean(process.env.GITHUB_TOKEN && (process.env.SCHEDULER_SECRET||process.env.DORNELAS_SCHEDULER_SECRET)) }));
+      res.end(JSON.stringify({ ok: true, service: "dornelas-ia-agent", version: process.env.RENDER_GIT_COMMIT || process.env.GITHUB_SHA || "local", aiConfigured:Boolean(process.env.AI_API_BASE_URL && process.env.AI_API_KEY && process.env.AI_MODEL), imageConfigured:Boolean(process.env.AI_API_BASE_URL && process.env.AI_API_KEY && process.env.AI_IMAGE_MODEL), assetStorageConfigured:Boolean(process.env.GITHUB_TOKEN), schedulerConfigured:Boolean(process.env.DATA_STORE_TOKEN && process.env.DATA_STORE_REPO && process.env.SCHEDULER_SECRET) }));
       return;
     }
 
