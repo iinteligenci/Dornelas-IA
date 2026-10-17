@@ -13,6 +13,18 @@ test("data store refuses missing private-repository configuration without networ
   assert.equal(calls, 0);
 });
 
+test("data store fails clearly for either missing repository token or repository name", async () => {
+  for (const missingConfig of [
+    { DATA_STORE_REPO: "owner/private-data" },
+    { DATA_STORE_TOKEN: "test-token-not-a-real-secret" }
+  ]) {
+    let calls = 0;
+    const store = createGitHubJsonStore({ env: missingConfig, fetchImpl: async () => { calls++; throw new Error("unexpected network call"); } });
+    await assert.rejects(store.putJson("generated/ai/schedule.json", []), /DATA_STORE_(TOKEN|REPO) não configurado/);
+    assert.equal(calls, 0, "missing configuration must never fall back to local disk or call network");
+  }
+});
+
 test("data store reads and writes JSON through the injected simulated GitHub transport", async () => {
   let stored = null;
   let calls = 0;

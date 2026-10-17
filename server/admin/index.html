@@ -32,7 +32,7 @@
 (() => {
   const $ = id => document.getElementById(id);
   const loginPanel = $('loginPanel'), dashboard = $('dashboard'), logout = $('logout');
-  const labels = {dataStoreConfigured:'Repositório privado de dados',encryptionConfigured:'Criptografia de tokens OAuth',metaConfigured:'Meta / Instagram OAuth',googleConfigured:'Google OAuth',aiConfigured:'IA de conteúdo',imageConfigured:'Geração de imagens',assetStorageConfigured:'Armazenamento de mídia pública',schedulerConfigured:'Agendador externo'};
+  const labels = {dataStoreConfigured:'Repositório privado de dados',encryptionConfigured:'Criptografia de tokens OAuth',metaConfigured:'Meta / Instagram OAuth',googleConfigured:'Google OAuth',aiConfigured:'IA de conteúdo',imageConfigured:'Geração de imagens',assetStorageConfigured:'Armazenamento de mídia pública',schedulerConfigured:'Agendador externo',metaConnectionStatus:'Conexão Meta / Instagram',googleConnectionStatus:'Conexão Google'};
   function showLoggedIn(value){loginPanel.classList.toggle('hidden',value);dashboard.classList.toggle('hidden',!value);logout.classList.toggle('hidden',!value);}
   async function readSession(){
     const response = await fetch('/auth/session',{credentials:'same-origin'});
@@ -45,7 +45,7 @@
     for(const [key,label] of Object.entries(labels)){
       const card = document.createElement('div'); card.className='status';
       const title = document.createElement('strong'); title.textContent=label;
-      const state = document.createElement('div'); state.className='state '+(status[key]?'good':'bad'); state.textContent=status[key]?'Configurado':'Pendente de configuração';
+      const state = document.createElement('div'); const connectionState = key.endsWith('ConnectionStatus'); const value = status[key]; state.className='state '+(connectionState ? (value==='connected'?'good':'bad') : (value?'good':'bad')); state.textContent=connectionState ? ({connected:'Conectada',not_connected:'Não conectada',reconnect_required:'Reconectar conta',legacy_encryption_migration_pending:'Migração de criptografia pendente'}[value] || 'Estado indisponível') : (value?'Configurado':'Pendente de configuração');
       card.append(title,state); grid.append(card);
     }
     $('publishMode').textContent = 'Modo de publicação: '+(status.publishMode || 'simulate')+'. Nenhuma publicação foi executada por esta consulta.';

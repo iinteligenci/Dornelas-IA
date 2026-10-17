@@ -16,6 +16,8 @@ import { publishPublicAsset } from "./integrations/assets.js";
 import { githubJsonGet, githubJsonPut } from "./integrations/data-store.js";
 import { SYSTEM_PROMPT, CAMPAIGN_PROMPT, CONTENT_PLAN_PROMPT, RESEARCH_PROMPT, SITE_ANALYSIS_PROMPT, REUSE_PROMPT } from "./agent/ai-prompts.js";
 import { normalizeKnowledge, knowledgeInstructions } from "./data/knowledge.js";
+import { encryptTokenPayload, decodeStoredConnection, tokenEncryptionKey } from "./security/token-vault.js";
+import { schedulerSecretMatches, createAttemptLimiter } from "./security/scheduler-auth.js";
 
 function adminSessionToken() {
   const payload = Buffer.from(JSON.stringify({ exp: Date.now() + 8 * 60 * 60 * 1000 })).toString("base64url");
@@ -44,25 +46,21 @@ function cookieToken(secret, value) {
   return Buffer.concat([iv, cipher.getAuthTag(), encrypted]).toString("base64url");
 }
 
-function readCookie(req, name) {
-  const raw = req.headers.cookie || "";
-  const part = raw.split(";").map(v => v.trim()).find(v => v.startsWith(name + "="));
-  return part ? decodeURIComponent(part.slice(name.length + 1)) : null;
-}
-
 function decryptCookie(secret, value) {
   try {
     const key = crypto.createHash("sha256").update(String(secret || "")).digest();
     const data = Buffer.from(value, "base64url");
+    if (data.length < 29) return null;
     const decipher = crypto.createDecipheriv("aes-256-gcm", key, data.subarray(0, 12));
     decipher.setAuthTag(data.subarray(12, 28));
     return decipher.update(data.subarray(28), undefined, "utf8") + decipher.final("utf8");
   } catch { return null; }
 }
 
-function tokenEncryptionKey() {
-  const value = process.env.TOKEN_ENCRYPTION_KEY;
-  return value && value.length >= 32 ? value : null;
+function readCookie(req, name) {
+  const raw = req.headers.cookie || "";
+  const part = raw.split(";").map(v => v.trim()).find(v => v.startsWith(name + "="));
+  return part ? decodeURIComponent(part.slice(name.length + 1)) : null;
 }
 
 const port = Number(process.env.PORT || 8787);
@@ -70,6 +68,11 @@ const port = Number(process.env.PORT || 8787);
 const oauthStates = new Set();
 let metaConnection = process.env.META_ACCESS_TOKEN ? { accessToken: process.env.META_ACCESS_TOKEN, expiresAt: null, connected: true, authType: process.env.META_AUTH_TYPE || "facebook_login" } : null;
 let googleConnection = null;
+let metaConnectionNeedsReconnect = false;
+let googleConnectionNeedsReconnect = false;
+let metaLegacyNeedsMigration = false;
+let googleLegacyNeedsMigration = false;
+const schedulerAttemptLimiter = createAttemptLimiter({ limit: 10, windowMs: 15 * 60 * 1000 });
 
 const demoContext = {
   autonomyLevel: 2,
@@ -131,15 +134,14 @@ function metaPersistPath(){ return process.env.META_PERSIST_FILE || "generated/a
 
 async function loadPersistedMetaConnection(){
   if(metaConnection?.accessToken) return true;
-  if(!process.env.DATA_STORE_TOKEN || !process.env.DATA_STORE_REPO || (!tokenEncryptionKey() && !process.env.META_CLIENT_SECRET)) return false;
   try{
     const saved=await githubJsonGet(metaPersistPath());
     if(!saved.exists) return false;
-    const encrypted=saved.content?.encrypted;
-    const parsed=encrypted ? (decryptCookie(tokenEncryptionKey(), encrypted) || decryptCookie(process.env.META_CLIENT_SECRET, encrypted)) : null;
-    if(!parsed) return false;
-    const data=JSON.parse(parsed);
-    if(!data.accessToken) return false;
+    const decoded=decodeStoredConnection(saved.content?.encrypted,{encryptionKey:tokenEncryptionKey(),legacySecret:process.env.META_CLIENT_SECRET});
+    metaConnectionNeedsReconnect=decoded.needsReconnect;
+    metaLegacyNeedsMigration=decoded.needsMigration;
+    const data=decoded.data;
+    if(!data?.accessToken) return false;
     metaConnection={accessToken:data.accessToken,expiresAt:data.expiresAt||null,connected:true,authType:data.authType||"facebook_login",instagramUserId:data.instagramUserId||null};
     return true;
   }catch(error){ console.error("Meta persisted connection load failed:",error.message); return false; }
@@ -147,25 +149,25 @@ async function loadPersistedMetaConnection(){
 
 async function loadPersistedGoogleConnection(){
   if(googleConnection?.refreshToken||googleConnection?.accessToken) return true;
-  if(!process.env.DATA_STORE_TOKEN||!process.env.DATA_STORE_REPO||(!tokenEncryptionKey()&&!process.env.GOOGLE_CLIENT_SECRET)) return false;
   try{
     const saved=await githubJsonGet("generated/ai/google-connection.json");
     if(!saved.exists) return false;
-    const encrypted=saved.content?.encrypted;
-    const parsed=encrypted ? (decryptCookie(tokenEncryptionKey(), encrypted) || decryptCookie(process.env.GOOGLE_CLIENT_SECRET, encrypted)) : null;
-    if(!parsed) return false;
-    googleConnection=JSON.parse(parsed);
+    const decoded=decodeStoredConnection(saved.content?.encrypted,{encryptionKey:tokenEncryptionKey(),legacySecret:process.env.GOOGLE_CLIENT_SECRET});
+    googleConnectionNeedsReconnect=decoded.needsReconnect;
+    googleLegacyNeedsMigration=decoded.needsMigration;
+    googleConnection=decoded.data;
     return Boolean(googleConnection?.refreshToken||googleConnection?.accessToken);
   }catch(error){console.error("Google persisted connection load failed:",error.message);return false;}
 }
 async function persistGoogleConnection(){
-  if(!googleConnection) return;
-  if(!tokenEncryptionKey()) { console.error("Google token persistence disabled: TOKEN_ENCRYPTION_KEY ausente ou com menos de 32 caracteres."); return; }
-  const encrypted=cookieToken(tokenEncryptionKey(),JSON.stringify(googleConnection));
+  if(!googleConnection) return false;
+  if(!tokenEncryptionKey()) { console.error("Google token persistence disabled: TOKEN_ENCRYPTION_KEY ausente ou com menos de 32 bytes; reconecte a conta após configurar a chave."); return false; }
+  const encrypted=encryptTokenPayload(tokenEncryptionKey(),JSON.stringify(googleConnection));
   try{
     const current=await githubJsonGet("generated/ai/google-connection.json");
     await githubJsonPut("generated/ai/google-connection.json",{encrypted,updatedAt:new Date().toISOString()},current.sha||undefined);
-  }catch(error){console.error("Google persisted connection save failed:",error.message);}
+    googleLegacyNeedsMigration=false; googleConnectionNeedsReconnect=false; return true;
+  }catch(error){console.error("Google persisted connection save failed:",error.message);return false;}
 }
 async function ensureGoogleAccess(){
   await loadPersistedGoogleConnection();
@@ -173,7 +175,8 @@ async function ensureGoogleAccess(){
   if(googleConnection.refreshToken && (!googleConnection.accessToken||!googleConnection.expiresAt||Date.now()>googleConnection.expiresAt-60000)){
     const token=await refreshGoogleAccessToken({clientId:process.env.GOOGLE_CLIENT_ID,clientSecret:process.env.GOOGLE_CLIENT_SECRET,refreshToken:googleConnection.refreshToken});
     googleConnection={...googleConnection,accessToken:token.access_token,expiresAt:token.expires_in?Date.now()+Number(token.expires_in)*1000:googleConnection.expiresAt};
-    await persistGoogleConnection();
+    const persisted = await persistGoogleConnection();
+    if (!persisted) throw new Error("Google token renovado, mas não foi persistido. Verifique DATA_STORE_REPO, DATA_STORE_TOKEN e TOKEN_ENCRYPTION_KEY.");
   }
   return googleConnection.accessToken;
 }
@@ -190,15 +193,15 @@ async function getGoogleBusinessData(){
 }
 
 async function persistMetaConnection(){
-  if(!metaConnection?.accessToken) return;
-  if(!tokenEncryptionKey()) { console.error("Meta token persistence disabled: TOKEN_ENCRYPTION_KEY ausente ou com menos de 32 caracteres."); return; }
-  const encrypted=cookieToken(tokenEncryptionKey(),JSON.stringify({accessToken:metaConnection.accessToken,expiresAt:metaConnection.expiresAt||null,authType:metaConnection.authType||"facebook_login",instagramUserId:metaConnection.instagramUserId||null}));
+  if(!metaConnection?.accessToken) return false;
+  if(!tokenEncryptionKey()) { console.error("Meta token persistence disabled: TOKEN_ENCRYPTION_KEY ausente ou com menos de 32 bytes; reconecte a conta após configurar a chave."); return false; }
+  const encrypted=encryptTokenPayload(tokenEncryptionKey(),JSON.stringify({accessToken:metaConnection.accessToken,expiresAt:metaConnection.expiresAt||null,authType:metaConnection.authType||"facebook_login",instagramUserId:metaConnection.instagramUserId||null}));
   try{
     const current=await githubJsonGet(metaPersistPath());
     await githubJsonPut(metaPersistPath(),{encrypted,updatedAt:new Date().toISOString()},current.sha);
-  }catch(error){ console.error("Meta persisted connection save failed:",error.message); }
+    metaLegacyNeedsMigration=false; metaConnectionNeedsReconnect=false; return true;
+  }catch(error){console.error("Meta persisted connection save failed:",error.message);return false;}
 }
-
 
 async function discoverInstagramBusinessAsset() {
   const token=metaConnection?.accessToken;
@@ -320,10 +323,15 @@ const server = await import("node:http").then(({ createServer }) =>
 
     if (req.method === "GET" && requestUrl.pathname === "/auth/session") {
       res.setHeader("Cache-Control", "no-store");
+      const authenticated = validAdminSession(req);
+      if (authenticated) {
+        // Status checks are best-effort: an unavailable store must not crash the HTTP server.
+        await Promise.all([loadPersistedMetaConnection(), loadPersistedGoogleConnection()]);
+      }
       res.end(JSON.stringify({
         ok: true,
-        authenticated: validAdminSession(req),
-        integrations: {
+        authenticated,
+        ...(authenticated ? { integrations: {
           dataStoreConfigured: Boolean(process.env.DATA_STORE_TOKEN && process.env.DATA_STORE_REPO),
           encryptionConfigured: Boolean(tokenEncryptionKey()),
           metaConfigured: Boolean(process.env.META_CLIENT_ID && process.env.META_CLIENT_SECRET && process.env.META_REDIRECT_URI),
@@ -332,8 +340,10 @@ const server = await import("node:http").then(({ createServer }) =>
           imageConfigured: Boolean(process.env.AI_API_BASE_URL && process.env.AI_API_KEY && process.env.AI_IMAGE_MODEL),
           assetStorageConfigured: Boolean(process.env.GITHUB_TOKEN && process.env.CONTENT_ASSET_REPO),
           schedulerConfigured: Boolean(process.env.DATA_STORE_TOKEN && process.env.DATA_STORE_REPO && process.env.SCHEDULER_SECRET),
+          metaConnectionStatus: metaConnectionNeedsReconnect ? "reconnect_required" : (metaLegacyNeedsMigration ? "legacy_encryption_migration_pending" : (metaConnection?.accessToken ? "connected" : "not_connected")),
+          googleConnectionStatus: googleConnectionNeedsReconnect ? "reconnect_required" : (googleLegacyNeedsMigration ? "legacy_encryption_migration_pending" : (googleConnection ? "connected" : "not_connected")),
           publishMode: (process.env.META_PUBLISH_MODE || "simulate").toLowerCase()
-        }
+        } } : {})
       }));
       return;
     }
@@ -365,7 +375,15 @@ const server = await import("node:http").then(({ createServer }) =>
     if (schedulerRunRequest) {
       const schedulerSecret = process.env.SCHEDULER_SECRET;
       if (!schedulerSecret) { res.statusCode = 503; res.end(JSON.stringify({ error: "scheduler_secret_not_configured", message: "Configure SCHEDULER_SECRET para habilitar o chamador externo." })); return; }
-      if (req.headers["x-scheduler-secret"] !== schedulerSecret) { res.statusCode = 401; res.end(JSON.stringify({ error: "invalid_scheduler_secret" })); return; }
+      const clientKey = String(req.socket?.remoteAddress || "unknown");
+      const attempt = schedulerAttemptLimiter.check(clientKey);
+      if (!attempt.allowed) {
+        res.statusCode = 429; res.setHeader("Retry-After", String(attempt.retryAfterSeconds));
+        res.end(JSON.stringify({ error: "scheduler_rate_limited", message: "Limite de tentativas excedido. Aguarde antes de tentar novamente." })); return;
+      }
+      const supplied = req.headers["x-scheduler-secret"];
+      if (!schedulerSecretMatches(typeof supplied === "string" ? supplied : "", schedulerSecret)) { res.statusCode = 401; res.end(JSON.stringify({ error: "invalid_scheduler_secret" })); return; }
+      schedulerAttemptLimiter.reset(clientKey);
     }
     const protectedRoute = (req.method !== "GET" && !requestUrl.pathname.startsWith("/auth/")) ||
       (req.method === "GET" && (requestUrl.pathname.startsWith("/agent/") || requestUrl.pathname.startsWith("/admin/api/") || protectedGetPaths.has(requestUrl.pathname)));
@@ -451,7 +469,7 @@ const server = await import("node:http").then(({ createServer }) =>
         const accessToken=longLived.access_token||token.access_token;
         const expiresAt=longLived.expires_in?Date.now()+Number(longLived.expires_in)*1000:null;
         metaConnection={accessToken,expiresAt,connected:true,authType:"instagram_login",instagramUserId:token.user_id||longLived.user_id||null};
-        await persistMetaConnection();
+        if (!await persistMetaConnection()) { res.statusCode=503; res.end(JSON.stringify({error:"connection_persistence_failed",message:"OAuth Meta concluído, mas a conexão não foi persistida. Configure DATA_STORE_REPO, DATA_STORE_TOKEN e TOKEN_ENCRYPTION_KEY; nenhum armazenamento local foi usado."})); return; }
         const metaCookie=cookieToken(process.env.META_CLIENT_SECRET||clientSecret,JSON.stringify({accessToken,expiresAt,authType:"instagram_login",instagramUserId:metaConnection.instagramUserId}));
         res.setHeader("Set-Cookie","dornelas_meta="+encodeURIComponent(metaCookie)+"; Path=/; Max-Age=5184000; HttpOnly; Secure; SameSite=None");
         res.statusCode=302; res.setHeader("Location","https://iinteligenci.github.io/Dornelas-IA/?instagram=connected"); res.end();
@@ -479,7 +497,7 @@ const server = await import("node:http").then(({ createServer }) =>
         const accessToken = longLived.access_token || token.access_token;
         const expiresAt = longLived.expires_in ? Date.now() + Number(longLived.expires_in) * 1000 : null;
         metaConnection = { accessToken, expiresAt, connected: true, authType: "facebook_login" };
-        await persistMetaConnection();
+        if (!await persistMetaConnection()) { res.statusCode=503; res.end(JSON.stringify({error:"connection_persistence_failed",message:"OAuth Meta concluído, mas a conexão não foi persistida. Configure DATA_STORE_REPO, DATA_STORE_TOKEN e TOKEN_ENCRYPTION_KEY; nenhum armazenamento local foi usado."})); return; }
         const metaCookie = cookieToken(process.env.META_CLIENT_SECRET, JSON.stringify({ accessToken, expiresAt }));
         res.setHeader("Set-Cookie", "dornelas_meta=" + encodeURIComponent(metaCookie) + "; Path=/; Max-Age=5184000; HttpOnly; Secure; SameSite=None");
 
@@ -514,7 +532,7 @@ const server = await import("node:http").then(({ createServer }) =>
       try {
         const token = await exchangeGoogleCode({ clientId: process.env.GOOGLE_CLIENT_ID, clientSecret: process.env.GOOGLE_CLIENT_SECRET, redirectUri: process.env.GOOGLE_REDIRECT_URI, code });
         googleConnection = { accessToken: token?.access_token || null, refreshToken: token?.refresh_token || null, expiresAt: token?.expires_in ? Date.now()+Number(token.expires_in)*1000 : null, connected: Boolean(token?.access_token || token?.refresh_token) };
-        await persistGoogleConnection();
+        if (!await persistGoogleConnection()) { res.statusCode=503; res.end(JSON.stringify({error:"connection_persistence_failed",message:"OAuth Google concluído, mas a conexão não foi persistida. Configure DATA_STORE_REPO, DATA_STORE_TOKEN e TOKEN_ENCRYPTION_KEY; nenhum armazenamento local foi usado."})); return; }
         if (googleConnection.refreshToken) {
           const googleCookie = cookieToken(process.env.GOOGLE_CLIENT_SECRET, JSON.stringify(googleConnection));
           res.setHeader("Set-Cookie", "dornelas_google=" + encodeURIComponent(googleCookie) + "; Path=/; Max-Age=31536000; HttpOnly; Secure; SameSite=None");

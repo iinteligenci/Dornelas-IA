@@ -93,7 +93,7 @@ test("admin panel serves from the backend and session status exposes only config
   const anonymous = await request("/auth/session");
   assert.equal(anonymous.status, 200);
   assert.equal(anonymous.json?.authenticated, false);
-  assert.equal(typeof anonymous.json?.integrations?.dataStoreConfigured, "boolean");
+  assert.equal(Object.hasOwn(anonymous.json || {}, "integrations"), false, "integration state is disclosed only after login");
   assert.equal(JSON.stringify(anonymous.json).includes(ADMIN_SESSION_SECRET_FOR_TEST), false);
 });
 
@@ -148,6 +148,9 @@ test("login rejects incorrect password and issues an HttpOnly session for correc
   const session = await request("/auth/session", { cookie: adminCookie });
   assert.equal(session.json?.authenticated, true);
   assert.equal(typeof session.json?.integrations?.publishMode, "string");
+  assert.equal(session.json?.integrations?.metaConnectionStatus, "not_connected");
+  assert.equal(session.json?.integrations?.googleConnectionStatus, "not_connected");
+  assert.equal(JSON.stringify(session.json).includes(ADMIN_SESSION_SECRET_FOR_TEST), false);
 });
 
 
@@ -286,4 +289,15 @@ test("remaining agent endpoints are reachable and fail honestly without provider
     if (path === "/agent/config-audit") assert.equal(Array.isArray(response.json?.configured), true);
     if (path === "/agent/knowledge/test") assert.ok(response.json?.storageError, "missing GitHub token should be reported rather than persisted");
   }
+});
+
+test("scheduler route rate-limits repeated invalid secrets", async () => {
+  for (let i = 0; i < 10; i++) {
+    const denied = await request("/agent/scheduler/run", { method: "POST", headers: { "x-scheduler-secret": `wrong-secret-${i}` }, body: {} });
+    assert.equal(denied.status, 401, `invalid attempt ${i + 1} should be rejected before the limit`);
+  }
+  const limited = await request("/agent/scheduler/run", { method: "POST", headers: { "x-scheduler-secret": "still-wrong" }, body: {} });
+  assert.equal(limited.status, 429);
+  assert.equal(limited.json?.error, "scheduler_rate_limited");
+  assert.ok(Number(limited.headers.get("retry-after")) > 0);
 });
