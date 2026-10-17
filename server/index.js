@@ -5,11 +5,19 @@ import { googleAuthorizeUrl, exchangeGoogleCode, googleApiGet, refreshGoogleAcce
 import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import { spawn } from "node:child_process";
-import ffmpegPath from "ffmpeg-static";
+let ffmpegPath = null;
+try {
+  ({ default: ffmpegPath } = await import("ffmpeg-static"));
+} catch {
+  // The API can start without ffmpeg; clip generation reports the missing dependency when requested.
+}
 import { runAI, generateImage } from "./integrations/ai.js";
-import { publishPublicAsset, githubJsonGet, githubJsonPut } from "./integrations/assets.js";
+import { publishPublicAsset } from "./integrations/assets.js";
+import { githubJsonGet, githubJsonPut } from "./integrations/data-store.js";
 import { SYSTEM_PROMPT, CAMPAIGN_PROMPT, CONTENT_PLAN_PROMPT, RESEARCH_PROMPT, SITE_ANALYSIS_PROMPT, REUSE_PROMPT } from "./agent/ai-prompts.js";
 import { normalizeKnowledge, knowledgeInstructions } from "./data/knowledge.js";
+import { encryptTokenPayload, decodeStoredConnection, tokenEncryptionKey } from "./security/token-vault.js";
+import { schedulerSecretMatches, createAttemptLimiter } from "./security/scheduler-auth.js";
 
 function adminSessionToken() {
   const payload = Buffer.from(JSON.stringify({ exp: Date.now() + 8 * 60 * 60 * 1000 })).toString("base64url");
@@ -38,20 +46,21 @@ function cookieToken(secret, value) {
   return Buffer.concat([iv, cipher.getAuthTag(), encrypted]).toString("base64url");
 }
 
-function readCookie(req, name) {
-  const raw = req.headers.cookie || "";
-  const part = raw.split(";").map(v => v.trim()).find(v => v.startsWith(name + "="));
-  return part ? decodeURIComponent(part.slice(name.length + 1)) : null;
-}
-
 function decryptCookie(secret, value) {
   try {
     const key = crypto.createHash("sha256").update(String(secret || "")).digest();
     const data = Buffer.from(value, "base64url");
+    if (data.length < 29) return null;
     const decipher = crypto.createDecipheriv("aes-256-gcm", key, data.subarray(0, 12));
     decipher.setAuthTag(data.subarray(12, 28));
     return decipher.update(data.subarray(28), undefined, "utf8") + decipher.final("utf8");
   } catch { return null; }
+}
+
+function readCookie(req, name) {
+  const raw = req.headers.cookie || "";
+  const part = raw.split(";").map(v => v.trim()).find(v => v.startsWith(name + "="));
+  return part ? decodeURIComponent(part.slice(name.length + 1)) : null;
 }
 
 const port = Number(process.env.PORT || 8787);
@@ -59,6 +68,11 @@ const port = Number(process.env.PORT || 8787);
 const oauthStates = new Set();
 let metaConnection = process.env.META_ACCESS_TOKEN ? { accessToken: process.env.META_ACCESS_TOKEN, expiresAt: null, connected: true, authType: process.env.META_AUTH_TYPE || "facebook_login" } : null;
 let googleConnection = null;
+let metaConnectionNeedsReconnect = false;
+let googleConnectionNeedsReconnect = false;
+let metaLegacyNeedsMigration = false;
+let googleLegacyNeedsMigration = false;
+const schedulerAttemptLimiter = createAttemptLimiter({ limit: 10, windowMs: 15 * 60 * 1000 });
 
 const demoContext = {
   autonomyLevel: 2,
@@ -106,6 +120,7 @@ async function fetchSiteCatalog() {
 function schedulerPath(){ return process.env.SCHEDULE_FILE || "generated/ai/schedule.json"; }
 
 function runFfmpeg(args){
+  if (!ffmpegPath) return Promise.reject(new Error("ffmpeg não está instalado neste ambiente."));
   return new Promise((resolve,reject)=>{
     const p=spawn(ffmpegPath,args,{stdio:["ignore","ignore","pipe"]});
     let stderr="";
@@ -119,15 +134,14 @@ function metaPersistPath(){ return process.env.META_PERSIST_FILE || "generated/a
 
 async function loadPersistedMetaConnection(){
   if(metaConnection?.accessToken) return true;
-  if(!process.env.GITHUB_TOKEN || !process.env.META_CLIENT_SECRET) return false;
   try{
     const saved=await githubJsonGet(metaPersistPath());
     if(!saved.exists) return false;
-    const encrypted=saved.content?.encrypted;
-    const parsed=encrypted?decryptCookie(process.env.META_CLIENT_SECRET,encrypted):null;
-    if(!parsed) return false;
-    const data=JSON.parse(parsed);
-    if(!data.accessToken) return false;
+    const decoded=decodeStoredConnection(saved.content?.encrypted,{encryptionKey:tokenEncryptionKey(),legacySecret:process.env.META_CLIENT_SECRET});
+    metaConnectionNeedsReconnect=decoded.needsReconnect;
+    metaLegacyNeedsMigration=decoded.needsMigration;
+    const data=decoded.data;
+    if(!data?.accessToken) return false;
     metaConnection={accessToken:data.accessToken,expiresAt:data.expiresAt||null,connected:true,authType:data.authType||"facebook_login",instagramUserId:data.instagramUserId||null};
     return true;
   }catch(error){ console.error("Meta persisted connection load failed:",error.message); return false; }
@@ -135,24 +149,25 @@ async function loadPersistedMetaConnection(){
 
 async function loadPersistedGoogleConnection(){
   if(googleConnection?.refreshToken||googleConnection?.accessToken) return true;
-  if(!process.env.GITHUB_TOKEN||!process.env.GOOGLE_CLIENT_SECRET) return false;
   try{
     const saved=await githubJsonGet("generated/ai/google-connection.json");
     if(!saved.exists) return false;
-    const encrypted=saved.content?.encrypted;
-    const parsed=encrypted?decryptCookie(process.env.GOOGLE_CLIENT_SECRET,encrypted):null;
-    if(!parsed) return false;
-    googleConnection=JSON.parse(parsed);
+    const decoded=decodeStoredConnection(saved.content?.encrypted,{encryptionKey:tokenEncryptionKey(),legacySecret:process.env.GOOGLE_CLIENT_SECRET});
+    googleConnectionNeedsReconnect=decoded.needsReconnect;
+    googleLegacyNeedsMigration=decoded.needsMigration;
+    googleConnection=decoded.data;
     return Boolean(googleConnection?.refreshToken||googleConnection?.accessToken);
   }catch(error){console.error("Google persisted connection load failed:",error.message);return false;}
 }
 async function persistGoogleConnection(){
-  if(!process.env.GITHUB_TOKEN||!process.env.GOOGLE_CLIENT_SECRET||!googleConnection) return;
-  const encrypted=cookieToken(process.env.GOOGLE_CLIENT_SECRET,JSON.stringify(googleConnection));
+  if(!googleConnection) return false;
+  if(!tokenEncryptionKey()) { console.error("Google token persistence disabled: TOKEN_ENCRYPTION_KEY ausente ou com menos de 32 bytes; reconecte a conta após configurar a chave."); return false; }
+  const encrypted=encryptTokenPayload(tokenEncryptionKey(),JSON.stringify(googleConnection));
   try{
     const current=await githubJsonGet("generated/ai/google-connection.json");
     await githubJsonPut("generated/ai/google-connection.json",{encrypted,updatedAt:new Date().toISOString()},current.sha||undefined);
-  }catch(error){console.error("Google persisted connection save failed:",error.message);}
+    googleLegacyNeedsMigration=false; googleConnectionNeedsReconnect=false; return true;
+  }catch(error){console.error("Google persisted connection save failed:",error.message);return false;}
 }
 async function ensureGoogleAccess(){
   await loadPersistedGoogleConnection();
@@ -160,7 +175,8 @@ async function ensureGoogleAccess(){
   if(googleConnection.refreshToken && (!googleConnection.accessToken||!googleConnection.expiresAt||Date.now()>googleConnection.expiresAt-60000)){
     const token=await refreshGoogleAccessToken({clientId:process.env.GOOGLE_CLIENT_ID,clientSecret:process.env.GOOGLE_CLIENT_SECRET,refreshToken:googleConnection.refreshToken});
     googleConnection={...googleConnection,accessToken:token.access_token,expiresAt:token.expires_in?Date.now()+Number(token.expires_in)*1000:googleConnection.expiresAt};
-    await persistGoogleConnection();
+    const persisted = await persistGoogleConnection();
+    if (!persisted) throw new Error("Google token renovado, mas não foi persistido. Verifique DATA_STORE_REPO, DATA_STORE_TOKEN e TOKEN_ENCRYPTION_KEY.");
   }
   return googleConnection.accessToken;
 }
@@ -177,14 +193,15 @@ async function getGoogleBusinessData(){
 }
 
 async function persistMetaConnection(){
-  if(!process.env.GITHUB_TOKEN || !metaConnection?.accessToken) return;
-  const encrypted=cookieToken(process.env.META_CLIENT_SECRET,JSON.stringify({accessToken:metaConnection.accessToken,expiresAt:metaConnection.expiresAt||null,authType:metaConnection.authType||"facebook_login",instagramUserId:metaConnection.instagramUserId||null}));
+  if(!metaConnection?.accessToken) return false;
+  if(!tokenEncryptionKey()) { console.error("Meta token persistence disabled: TOKEN_ENCRYPTION_KEY ausente ou com menos de 32 bytes; reconecte a conta após configurar a chave."); return false; }
+  const encrypted=encryptTokenPayload(tokenEncryptionKey(),JSON.stringify({accessToken:metaConnection.accessToken,expiresAt:metaConnection.expiresAt||null,authType:metaConnection.authType||"facebook_login",instagramUserId:metaConnection.instagramUserId||null}));
   try{
     const current=await githubJsonGet(metaPersistPath());
     await githubJsonPut(metaPersistPath(),{encrypted,updatedAt:new Date().toISOString()},current.sha);
-  }catch(error){ console.error("Meta persisted connection save failed:",error.message); }
+    metaLegacyNeedsMigration=false; metaConnectionNeedsReconnect=false; return true;
+  }catch(error){console.error("Meta persisted connection save failed:",error.message);return false;}
 }
-
 
 async function discoverInstagramBusinessAsset() {
   const token=metaConnection?.accessToken;
@@ -246,6 +263,9 @@ async function getInstagramTarget(){
 }
 
 async function publishInstagramMedia({mediaType,imageUrl,videoUrl,caption}){
+  if ((process.env.META_PUBLISH_MODE || "simulate").toLowerCase() !== "live") {
+    return { simulated: true, externalActionPerformed: false, action: "instagram_publish", mediaType };
+  }
   const target=await getInstagramTarget();
   const creation=target.authType==="instagram_login"
     ? await instagramGraphPost({path:"/me/media",accessToken:metaConnection.accessToken,body:mediaType==="REELS"?{media_type:"REELS",video_url:videoUrl,caption}:{image_url:imageUrl,caption}})
@@ -257,15 +277,21 @@ async function publishInstagramMedia({mediaType,imageUrl,videoUrl,caption}){
 }
 
 async function getPublicTrends(){
-  const rr=await fetch("https://trends.google.com/trending/rss?geo=BR&hl=pt-BR",{headers:{"User-Agent":"Mozilla/5.0 Dornelas-IA"}});
+  if (process.env.NODE_ENV === "test") throw new Error("Consulta externa de tendências desativada durante testes; use entrada manual.");
+  const consultedAt = new Date().toISOString();
+  const rr=await fetch("https://trends.google.com/trending/rss?geo=BR&hl=pt-BR",{headers:{"User-Agent":"Mozilla/5.0 Dornelas-IA"},signal:AbortSignal.timeout(8000)});
   if(!rr.ok) throw new Error("Google Trends HTTP "+rr.status);
   const xml=await rr.text();
   const itemBlocks=xml.split("<item>").slice(1,16);
   const trends=itemBlocks.map(block=>{
     const pick=(tag)=>{const m=block.match(new RegExp("<"+tag+"[^>]*>([\\s\\S]*?)</"+tag+">","i"));return (m?.[1]||"").replace(/<!\\[CDATA\\[|\\]\\]>/g,"").replace(/<[^>]+>/g," ").trim();};
-    return {title:pick("title"),traffic:pick("ht:approx_traffic"),description:pick("description")};
-  }).filter(x=>x.title);
-  return {ok:true,source:"Google Trends público",trends};
+    const title=pick("title");
+    const traffic=pick("ht:approx_traffic")||null;
+    const url=pick("link")||null;
+    const publishedAt=pick("pubDate")||null;
+    return {title,url,publishedAt,consultedAt,traffic,performanceSignal:traffic?{type:"approximate_search_traffic",value:traffic}:null,description:pick("description")};
+  }).filter(x=>x.title&&x.url);
+  return {ok:true,source:"Google Trends público",consultedAt,trends,manualInputAvailable:trends.length===0};
 }
 
 const server = await import("node:http").then(({ createServer }) =>
@@ -282,6 +308,45 @@ const server = await import("node:http").then(({ createServer }) =>
     const origin = req.headers.origin;
     const allowedOrigin = "https://iinteligenci.github.io";
     if (origin && origin !== allowedOrigin) { res.statusCode = 403; res.end(JSON.stringify({ error: "origin_not_allowed" })); return; }
+
+    if (req.method === "GET" && (requestUrl.pathname === "/admin" || requestUrl.pathname === "/admin/")) {
+      try {
+        const html = await fs.readFile(new URL("./admin/index.html", import.meta.url), "utf8");
+        res.setHeader("Content-Type", "text/html; charset=utf-8");
+        res.setHeader("Cache-Control", "no-store");
+        res.end(html);
+      } catch {
+        res.statusCode = 500; res.end(JSON.stringify({ error: "admin_panel_unavailable" }));
+      }
+      return;
+    }
+
+    if (req.method === "GET" && requestUrl.pathname === "/auth/session") {
+      res.setHeader("Cache-Control", "no-store");
+      const authenticated = validAdminSession(req);
+      if (authenticated) {
+        // Status checks are best-effort: an unavailable store must not crash the HTTP server.
+        await Promise.all([loadPersistedMetaConnection(), loadPersistedGoogleConnection()]);
+      }
+      res.end(JSON.stringify({
+        ok: true,
+        authenticated,
+        ...(authenticated ? { integrations: {
+          dataStoreConfigured: Boolean(process.env.DATA_STORE_TOKEN && process.env.DATA_STORE_REPO),
+          encryptionConfigured: Boolean(tokenEncryptionKey()),
+          metaConfigured: Boolean(process.env.META_CLIENT_ID && process.env.META_CLIENT_SECRET && process.env.META_REDIRECT_URI),
+          googleConfigured: Boolean(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET && process.env.GOOGLE_REDIRECT_URI),
+          aiConfigured: Boolean(process.env.AI_API_BASE_URL && process.env.AI_API_KEY && process.env.AI_MODEL),
+          imageConfigured: Boolean(process.env.AI_API_BASE_URL && process.env.AI_API_KEY && process.env.AI_IMAGE_MODEL),
+          assetStorageConfigured: Boolean(process.env.GITHUB_TOKEN && process.env.CONTENT_ASSET_REPO),
+          schedulerConfigured: Boolean(process.env.DATA_STORE_TOKEN && process.env.DATA_STORE_REPO && process.env.SCHEDULER_SECRET),
+          metaConnectionStatus: metaConnectionNeedsReconnect ? "reconnect_required" : (metaLegacyNeedsMigration ? "legacy_encryption_migration_pending" : (metaConnection?.accessToken ? "connected" : "not_connected")),
+          googleConnectionStatus: googleConnectionNeedsReconnect ? "reconnect_required" : (googleLegacyNeedsMigration ? "legacy_encryption_migration_pending" : (googleConnection ? "connected" : "not_connected")),
+          publishMode: (process.env.META_PUBLISH_MODE || "simulate").toLowerCase()
+        } } : {})
+      }));
+      return;
+    }
 
     if (req.method === "POST" && requestUrl.pathname === "/auth/login") {
       const body = JSON.parse(await readBody(req).catch(() => "{}") || "{}");
@@ -303,10 +368,67 @@ const server = await import("node:http").then(({ createServer }) =>
       res.end(JSON.stringify({ ok: true })); return;
     }
 
+    const protectedGetPaths = new Set([
+      "/google/data", "/google/status", "/meta/data", "/meta/status", "/meta/overview", "/meta/accounts", "/site/analyze"
+    ]);
+    const schedulerRunRequest = req.method === "POST" && requestUrl.pathname === "/agent/scheduler/run";
+    if (schedulerRunRequest) {
+      const schedulerSecret = process.env.SCHEDULER_SECRET;
+      if (!schedulerSecret) { res.statusCode = 503; res.end(JSON.stringify({ error: "scheduler_secret_not_configured", message: "Configure SCHEDULER_SECRET para habilitar o chamador externo." })); return; }
+      const clientKey = String(req.socket?.remoteAddress || "unknown");
+      const attempt = schedulerAttemptLimiter.check(clientKey);
+      if (!attempt.allowed) {
+        res.statusCode = 429; res.setHeader("Retry-After", String(attempt.retryAfterSeconds));
+        res.end(JSON.stringify({ error: "scheduler_rate_limited", message: "Limite de tentativas excedido. Aguarde antes de tentar novamente." })); return;
+      }
+      const supplied = req.headers["x-scheduler-secret"];
+      if (!schedulerSecretMatches(typeof supplied === "string" ? supplied : "", schedulerSecret)) { res.statusCode = 401; res.end(JSON.stringify({ error: "invalid_scheduler_secret" })); return; }
+      schedulerAttemptLimiter.reset(clientKey);
+    }
     const protectedRoute = (req.method !== "GET" && !requestUrl.pathname.startsWith("/auth/")) ||
-      (req.method === "GET" && (requestUrl.pathname.startsWith("/agent/") || requestUrl.pathname === "/google/data" || requestUrl.pathname === "/meta/data"));
-    if (protectedRoute && !validAdminSession(req)) {
+      (req.method === "GET" && (requestUrl.pathname.startsWith("/agent/") || requestUrl.pathname.startsWith("/admin/api/") || protectedGetPaths.has(requestUrl.pathname)));
+    if (protectedRoute && !schedulerRunRequest && !validAdminSession(req)) {
       res.statusCode = 401; res.end(JSON.stringify({ error: "admin_login_required", message: "Entre com a senha administrativa para usar os recursos protegidos." })); return;
+    }
+
+    if (requestUrl.pathname.startsWith("/admin/api/approvals")) {
+      const queuePath = "generated/ai/approval-queue.json";
+      try {
+        if (req.method === "GET" && requestUrl.pathname === "/admin/api/approvals") {
+          const saved = await githubJsonGet(queuePath);
+          res.end(JSON.stringify({ ok: true, items: Array.isArray(saved.content) ? saved.content : [] })); return;
+        }
+        if (req.method === "POST" && requestUrl.pathname === "/admin/api/approvals") {
+          const input = JSON.parse(await readBody(req) || "{}");
+          if (!String(input.caption || "").trim()) throw new Error("caption é obrigatório.");
+          const current = await githubJsonGet(queuePath); const items = Array.isArray(current.content) ? current.content : [];
+          const item = { id: crypto.randomUUID(), headline: String(input.headline || "Rascunho Dornelas"), caption: String(input.caption).trim(), imageUrl: input.imageUrl || null, videoUrl: input.videoUrl || null, status: "pending", createdAt: new Date().toISOString(), approvedAt: null };
+          items.push(item); await githubJsonPut(queuePath, items, current.sha || undefined);
+          res.statusCode = 201; res.end(JSON.stringify({ ok: true, item })); return;
+        }
+        const actionMatch = requestUrl.pathname.match(/^\/admin\/api\/approvals\/([^/]+)\/(approve|reject)$/);
+        if (req.method === "POST" && actionMatch) {
+          const [, id, action] = actionMatch; const current = await githubJsonGet(queuePath); const items = Array.isArray(current.content) ? current.content : [];
+          const item = items.find(entry => entry.id === id);
+          if (!item) { res.statusCode = 404; res.end(JSON.stringify({ error: "approval_item_not_found" })); return; }
+          if (item.status !== "pending") { res.statusCode = 409; res.end(JSON.stringify({ error: "approval_item_already_reviewed", status: item.status })); return; }
+          item.status = action === "approve" ? "approved" : "rejected";
+          item.reviewedAt = new Date().toISOString();
+          await githubJsonPut(queuePath, items, current.sha || undefined);
+          res.end(JSON.stringify({ ok: true, item, externalActionPerformed: false, message: "Estado de aprovação salvo. Nenhuma publicação foi executada." })); return;
+        }
+        res.statusCode = 404; res.end(JSON.stringify({ error: "not_found" })); return;
+      } catch (error) { res.statusCode = 502; res.end(JSON.stringify({ error: "approval_queue_failed", message: error.message })); return; }
+    }
+
+    if (req.method === "GET" && requestUrl.pathname === "/admin/api/history") {
+      try {
+        const [queue, schedule] = await Promise.all([githubJsonGet("generated/ai/approval-queue.json"), githubJsonGet(schedulerPath())]);
+        const approvals = (Array.isArray(queue.content) ? queue.content : []).filter(item => item.status !== "pending").map(item => ({ type: "approval", ...item }));
+        const scheduled = (Array.isArray(schedule.content) ? schedule.content : []).filter(item => ["published", "failed", "simulated"].includes(item.status)).map(item => ({ type: "schedule", ...item }));
+        res.end(JSON.stringify({ ok: true, items: [...approvals, ...scheduled].sort((a,b) => String(b.reviewedAt || b.publishedAt || b.createdAt || "").localeCompare(String(a.reviewedAt || a.publishedAt || a.createdAt || ""))) }));
+      } catch (error) { res.statusCode = 502; res.end(JSON.stringify({ error: "history_read_failed", message: error.message })); }
+      return;
     }
 
     if (req.method === "GET" && req.url === "/auth/meta") {
@@ -347,7 +469,7 @@ const server = await import("node:http").then(({ createServer }) =>
         const accessToken=longLived.access_token||token.access_token;
         const expiresAt=longLived.expires_in?Date.now()+Number(longLived.expires_in)*1000:null;
         metaConnection={accessToken,expiresAt,connected:true,authType:"instagram_login",instagramUserId:token.user_id||longLived.user_id||null};
-        await persistMetaConnection();
+        if (!await persistMetaConnection()) { res.statusCode=503; res.end(JSON.stringify({error:"connection_persistence_failed",message:"OAuth Meta concluído, mas a conexão não foi persistida. Configure DATA_STORE_REPO, DATA_STORE_TOKEN e TOKEN_ENCRYPTION_KEY; nenhum armazenamento local foi usado."})); return; }
         const metaCookie=cookieToken(process.env.META_CLIENT_SECRET||clientSecret,JSON.stringify({accessToken,expiresAt,authType:"instagram_login",instagramUserId:metaConnection.instagramUserId}));
         res.setHeader("Set-Cookie","dornelas_meta="+encodeURIComponent(metaCookie)+"; Path=/; Max-Age=5184000; HttpOnly; Secure; SameSite=None");
         res.statusCode=302; res.setHeader("Location","https://iinteligenci.github.io/Dornelas-IA/?instagram=connected"); res.end();
@@ -375,7 +497,7 @@ const server = await import("node:http").then(({ createServer }) =>
         const accessToken = longLived.access_token || token.access_token;
         const expiresAt = longLived.expires_in ? Date.now() + Number(longLived.expires_in) * 1000 : null;
         metaConnection = { accessToken, expiresAt, connected: true, authType: "facebook_login" };
-        await persistMetaConnection();
+        if (!await persistMetaConnection()) { res.statusCode=503; res.end(JSON.stringify({error:"connection_persistence_failed",message:"OAuth Meta concluído, mas a conexão não foi persistida. Configure DATA_STORE_REPO, DATA_STORE_TOKEN e TOKEN_ENCRYPTION_KEY; nenhum armazenamento local foi usado."})); return; }
         const metaCookie = cookieToken(process.env.META_CLIENT_SECRET, JSON.stringify({ accessToken, expiresAt }));
         res.setHeader("Set-Cookie", "dornelas_meta=" + encodeURIComponent(metaCookie) + "; Path=/; Max-Age=5184000; HttpOnly; Secure; SameSite=None");
 
@@ -410,7 +532,7 @@ const server = await import("node:http").then(({ createServer }) =>
       try {
         const token = await exchangeGoogleCode({ clientId: process.env.GOOGLE_CLIENT_ID, clientSecret: process.env.GOOGLE_CLIENT_SECRET, redirectUri: process.env.GOOGLE_REDIRECT_URI, code });
         googleConnection = { accessToken: token?.access_token || null, refreshToken: token?.refresh_token || null, expiresAt: token?.expires_in ? Date.now()+Number(token.expires_in)*1000 : null, connected: Boolean(token?.access_token || token?.refresh_token) };
-        await persistGoogleConnection();
+        if (!await persistGoogleConnection()) { res.statusCode=503; res.end(JSON.stringify({error:"connection_persistence_failed",message:"OAuth Google concluído, mas a conexão não foi persistida. Configure DATA_STORE_REPO, DATA_STORE_TOKEN e TOKEN_ENCRYPTION_KEY; nenhum armazenamento local foi usado."})); return; }
         if (googleConnection.refreshToken) {
           const googleCookie = cookieToken(process.env.GOOGLE_CLIENT_SECRET, JSON.stringify(googleConnection));
           res.setHeader("Set-Cookie", "dornelas_google=" + encodeURIComponent(googleCookie) + "; Path=/; Max-Age=31536000; HttpOnly; Secure; SameSite=None");
@@ -511,6 +633,11 @@ const server = await import("node:http").then(({ createServer }) =>
         if(mediaType==="IMAGE"&&!input.imageUrl) throw new Error("imageUrl é obrigatório para IMAGE.");
         if(mediaType==="REELS"&&!input.videoUrl) throw new Error("videoUrl é obrigatório para REELS.");
         const result=await publishInstagramMedia({mediaType,imageUrl:input.imageUrl,videoUrl:input.videoUrl,caption:input.caption});
+        if (result.simulated) {
+          res.statusCode = 202;
+          res.end(JSON.stringify({ok:false,simulated:true,externalActionPerformed:false,message:"Modo simulado: nenhuma chamada foi feita à Meta e nada foi publicado.",action:result.action,mediaType:result.mediaType}));
+          return;
+        }
         res.end(JSON.stringify({ok:true,...result}));
       }catch(error){res.statusCode=502;res.end(JSON.stringify({error:"meta_publish_failed",message:error.message}));}
       return;
@@ -612,7 +739,7 @@ Não invente estoque, avaliações, resultados ou promoções.`,
     if (req.method === "POST" && req.url === "/agent/research") {
       try {
         const input=JSON.parse(await readBody(req)||"{}");
-        const result=await runAI({instructions:RESEARCH_PROMPT,input:JSON.stringify({business:"Defumados Dornelas",focus:input.focus||"conteúdo que gere vendas",catalog:input.catalog||null}),tools:[{type:"web_search"}]});
+        const result=await runAI({instructions:RESEARCH_PROMPT,input:JSON.stringify({business:"Charcutaria Dornelas",focus:input.focus||"conteúdo que gere vendas",catalog:input.catalog||null,manualSources:Array.isArray(input.manualSources)?input.manualSources:[],consultedAt:new Date().toISOString()}),tools:[{type:"web_search"}]});
         res.end(JSON.stringify({ok:true,ai:true,model:result.model,research:cleanJson(result.text),responseId:result.responseId}));
       } catch(error) { res.statusCode=502; res.end(JSON.stringify({error:"research_failed",message:error.message})); }
       return;
@@ -698,8 +825,6 @@ Não invente estoque, avaliações, resultados ou promoções.`,
 
     if (req.method === "POST" && req.url === "/agent/scheduler/run") {
       await loadPersistedMetaConnection();
-      const schedulerSecret=process.env.SCHEDULER_SECRET||process.env.DORNELAS_SCHEDULER_SECRET;
-      if(schedulerSecret&&req.headers["x-scheduler-secret"]!==schedulerSecret){res.statusCode=401;res.end(JSON.stringify({error:"invalid_scheduler_secret"}));return;}
       try{
         const current=await githubJsonGet(schedulerPath()); const list=Array.isArray(current.content)?current.content:[]; const now=Date.now();
         const due=list.filter(x=>x.status==="scheduled"&&Date.parse(x.scheduledFor)<=now); const results=[];
@@ -707,8 +832,13 @@ Não invente estoque, avaliações, resultados ou promoções.`,
           try{
             if(!metaConnection?.accessToken) throw new Error("Instagram / Meta não conectada.");
             const result=await publishInstagramMedia({mediaType:item.mediaType==="REELS"?"REELS":"IMAGE",imageUrl:item.imageUrl,videoUrl:item.videoUrl,caption:item.caption});
-            item.status="published"; item.publishedAt=new Date().toISOString(); item.publishedId=result.published?.id||null;
-            results.push({id:item.id,status:"published"});
+            if (result.simulated) {
+              item.status="simulated"; item.simulatedAt=new Date().toISOString(); item.externalActionPerformed=false;
+              results.push({id:item.id,status:"simulated",externalActionPerformed:false});
+            } else {
+              item.status="published"; item.publishedAt=new Date().toISOString(); item.publishedId=result.published?.id||null;
+              results.push({id:item.id,status:"published",externalActionPerformed:true});
+            }
           }catch(error){item.status="failed";item.error=error.message;results.push({id:item.id,status:"failed",error:error.message});}
         }
         if(due.length) await githubJsonPut(schedulerPath(),list,current.sha);
@@ -737,6 +867,11 @@ Não invente estoque, avaliações, resultados ou promoções.`,
         if(Number(input.autonomyLevel||0)<2) throw new Error("Autonomia nível 2 ou superior é necessária.");
         if(!input.imageUrl||!input.caption) throw new Error("A campanha autorizada precisa de imagem pública e legenda.");
         const result=await publishInstagramMedia({mediaType:"IMAGE",imageUrl:input.imageUrl,caption:input.caption});
+        if (result.simulated) {
+          res.statusCode = 202;
+          res.end(JSON.stringify({ok:false,approved:true,simulated:true,externalActionPerformed:false,message:"A aprovação foi validada em simulação; nada foi enviado à Meta."}));
+          return;
+        }
         res.end(JSON.stringify({ok:true,approved:true,...result}));
       }catch(error){res.statusCode=502;res.end(JSON.stringify({error:"campaign_approval_failed",message:error.message}));}
       return;
@@ -776,7 +911,7 @@ Não invente estoque, avaliações, resultados ou promoções.`,
           ideas=cleanJson(ai.text);
         }catch{}
         res.end(JSON.stringify({...base,ideas}));
-      }catch(error){res.statusCode=502;res.end(JSON.stringify({error:"trends_failed",message:error.message}));}
+      }catch(error){res.statusCode=502;res.end(JSON.stringify({error:"trends_failed",message:"A fonte pública Google Trends não pôde ser consultada; nenhuma tendência foi inventada.",details:error.message,manualInputAvailable:true,manualInputFields:["sourceUrl","consultedAt","performanceSignal"]}));}
       return;
     }
 
@@ -784,9 +919,9 @@ Não invente estoque, avaliações, resultados ou promoções.`,
       const configured=[
         ["META_CLIENT_ID","Meta OAuth"],["META_CLIENT_SECRET","Meta OAuth secret"],["META_CONFIG_ID","Meta Login configuration"],
         ["META_REDIRECT_URI","Meta callback"],["GOOGLE_CLIENT_ID","Google OAuth"],["GOOGLE_CLIENT_SECRET","Google OAuth secret"],["GOOGLE_REDIRECT_URI","Google callback"],
-        ["AI_API_KEY","IA"],["AI_MODEL","modelo IA"],["AI_IMAGE_MODEL","geração de imagem"],["GITHUB_TOKEN","armazenamento de dados/ativos"],
-        ["CONTENT_ASSET_REPO","repositório de dados/ativos"],["CONTENT_ASSET_BRANCH","branch de dados"],["SITE_URL","site/catalogo"],["SCHEDULE_FILE","agenda"],
-        ["META_PERSIST_FILE","persistência Meta"],["SCHEDULER_SECRET","scheduler"],["DORNELAS_SCHEDULER_SECRET","scheduler alternativo"],
+        ["AI_API_KEY","IA"],["AI_MODEL","modelo IA"],["AI_IMAGE_MODEL","geração de imagem"],["GITHUB_TOKEN","ativos públicos"],
+        ["CONTENT_ASSET_REPO","repositório de ativos públicos"],["CONTENT_ASSET_BRANCH","branch de ativos"],["DATA_STORE_TOKEN","token do repositório privado de dados"],["DATA_STORE_REPO","repositório privado de dados"],["DATA_STORE_BRANCH","branch de dados"],["TOKEN_ENCRYPTION_KEY","criptografia de tokens OAuth"],["SITE_URL","site/catalogo"],["SCHEDULE_FILE","agenda"],
+        ["META_PERSIST_FILE","persistência Meta"],["SCHEDULER_SECRET","chamador externo do scheduler"],
         ["INSTAGRAM_CLIENT_ID","Instagram Login"],["INSTAGRAM_CLIENT_SECRET","Instagram Login secret"],["INSTAGRAM_REDIRECT_URI","Instagram callback"]
       ].map(([key,role])=>({key,role,configured:Boolean(process.env[key])}));
       res.end(JSON.stringify({ok:true,configured}));
@@ -908,7 +1043,7 @@ Cada quickWin deve ser executável e verificável. Não invente dados. Se não h
         const google=await safe("google_business",async()=>await getGoogleBusinessData());
         const trends=await safe("public_trends",getPublicTrends);
         const schedule=await safe("schedule",async()=>{const s=await githubJsonGet(schedulerPath());return Array.isArray(s.content)?s.content:[]})||[];
-        const config=await safe("config",async()=>{const x={};for(const k of ["META_CLIENT_ID","META_CLIENT_SECRET","META_CONFIG_ID","META_REDIRECT_URI","GOOGLE_CLIENT_ID","GOOGLE_CLIENT_SECRET","GOOGLE_REDIRECT_URI","AI_API_KEY","AI_API_BASE_URL","AI_MODEL","AI_IMAGE_MODEL","GITHUB_TOKEN","CONTENT_ASSET_REPO","CONTENT_ASSET_BRANCH","SITE_URL","SCHEDULE_FILE","META_PERSIST_FILE","SCHEDULER_SECRET","DORNELAS_SCHEDULER_SECRET","INSTAGRAM_CLIENT_ID","INSTAGRAM_CLIENT_SECRET","INSTAGRAM_REDIRECT_URI"])x[k]=Boolean(process.env[k]);return x;});
+        const config=await safe("config",async()=>{const x={};for(const k of ["META_CLIENT_ID","META_CLIENT_SECRET","META_CONFIG_ID","META_REDIRECT_URI","GOOGLE_CLIENT_ID","GOOGLE_CLIENT_SECRET","GOOGLE_REDIRECT_URI","AI_API_KEY","AI_API_BASE_URL","AI_MODEL","AI_IMAGE_MODEL","GITHUB_TOKEN","CONTENT_ASSET_REPO","CONTENT_ASSET_BRANCH","DATA_STORE_TOKEN","DATA_STORE_REPO","DATA_STORE_BRANCH","TOKEN_ENCRYPTION_KEY","SITE_URL","SCHEDULE_FILE","META_PERSIST_FILE","SCHEDULER_SECRET","INSTAGRAM_CLIENT_ID","INSTAGRAM_CLIENT_SECRET","INSTAGRAM_REDIRECT_URI"])x[k]=Boolean(process.env[k]);return x;});
         const knowledge=normalizeKnowledge({site,catalog,instagram,google,trends,schedule,config});
         let aiAnalysis=null;
         try{const ai=await runAI({instructions:knowledgeInstructions(),input:JSON.stringify(knowledge).slice(0,45000)});aiAnalysis=cleanJson(ai.text);}catch(error){errors.push({source:"knowledge_ai",error:error.message});}
@@ -961,8 +1096,8 @@ Cada quickWin deve ser executável e verificável. Não invente dados. Se não h
       return;
     }
 
-    if (req.method === "GET" && req.url === "/health") {
-      res.end(JSON.stringify({ ok: true, service: "dornelas-ia-agent", aiConfigured:Boolean(process.env.AI_API_BASE_URL && process.env.AI_API_KEY && process.env.AI_MODEL), imageConfigured:Boolean(process.env.AI_API_BASE_URL && process.env.AI_API_KEY && process.env.AI_IMAGE_MODEL), assetStorageConfigured:Boolean(process.env.GITHUB_TOKEN), schedulerConfigured:Boolean(process.env.GITHUB_TOKEN && (process.env.SCHEDULER_SECRET||process.env.DORNELAS_SCHEDULER_SECRET)) }));
+    if (req.method === "GET" && requestUrl.pathname === "/health") {
+      res.end(JSON.stringify({ ok: true, service: "dornelas-ia-agent", version: process.env.RENDER_GIT_COMMIT || process.env.GITHUB_SHA || "local", aiConfigured:Boolean(process.env.AI_API_BASE_URL && process.env.AI_API_KEY && process.env.AI_MODEL), imageConfigured:Boolean(process.env.AI_API_BASE_URL && process.env.AI_API_KEY && process.env.AI_IMAGE_MODEL), assetStorageConfigured:Boolean(process.env.GITHUB_TOKEN), schedulerConfigured:Boolean(process.env.DATA_STORE_TOKEN && process.env.DATA_STORE_REPO && process.env.SCHEDULER_SECRET) }));
       return;
     }
 

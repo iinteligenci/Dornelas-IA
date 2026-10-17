@@ -1,0 +1,22 @@
+# Environment files and secrets
+.env
+.env.*
+!.env.example
+
+# Dependencies and generated frontend output
+node_modules/
+**/node_modules/
+dist/
+**/dist/
+
+# Local runtime data, generated content, and temporary files
+server/data/local/
+server/generated/
+generated/
+*.sqlite
+*.sqlite3
+*.db
+*.log
+*.tmp
+.DS_Store
+Thumbs.db
