@@ -1,7 +1,8 @@
 function providerConfig() {
-  const key = process.env.AI_API_KEY;
-  const base = (process.env.AI_API_BASE_URL || "").replace(/\/+$/, "");
-  if (!key || !base) throw new Error("Configure AI_API_KEY e AI_API_BASE_URL no ambiente do servidor.");
+  const key = process.env.LOVABLE_API_KEY || process.env.AI_API_KEY;
+  const configuredBase = process.env.AI_API_BASE_URL || (process.env.LOVABLE_API_KEY ? "https://ai.gateway.lovable.dev/v1" : "");
+  const base = configuredBase.replace(/\/+$/, "");
+  if (!key || !base) throw new Error("Configure LOVABLE_API_KEY (recomendado) ou AI_API_KEY e AI_API_BASE_URL no ambiente do servidor.");
   return { key, base };
 }
 function toChatMessages(instructions, input) {
