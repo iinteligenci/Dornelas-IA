@@ -252,7 +252,7 @@ async function getInstagramTarget(){
 }
 
 async function publishInstagramMedia({mediaType,imageUrl,videoUrl,caption}){
-  if (process.env.META_PUBLISH_MODE === "simulate") {
+  if ((process.env.META_PUBLISH_MODE || "simulate").toLowerCase() !== "live") {
     return { simulated: true, externalActionPerformed: false, action: "instagram_publish", mediaType };
   }
   const target=await getInstagramTarget();

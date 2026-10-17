@@ -42,13 +42,12 @@ before(async () => {
   for (const name of [
     "AI_API_BASE_URL", "AI_API_KEY", "AI_MODEL", "AI_IMAGE_MODEL", "GITHUB_TOKEN",
     "CONTENT_ASSET_REPO", "CONTENT_ASSET_BRANCH", "META_ACCESS_TOKEN", "META_CLIENT_SECRET",
-    "GOOGLE_CLIENT_SECRET", "INSTAGRAM_CLIENT_SECRET", "SCHEDULER_SECRET", "DORNELAS_SCHEDULER_SECRET"
+    "GOOGLE_CLIENT_SECRET", "INSTAGRAM_CLIENT_SECRET", "SCHEDULER_SECRET", "DORNELAS_SCHEDULER_SECRET", "META_PUBLISH_MODE"
   ]) delete env[name];
   Object.assign(env, {
     PORT: String(port),
     ADMIN_PASSWORD: ADMIN_PASSWORD_FOR_TEST,
     ADMIN_SESSION_SECRET: ADMIN_SESSION_SECRET_FOR_TEST,
-    META_PUBLISH_MODE: "simulate",
     SITE_URL: "http://127.0.0.1:1/",
     NODE_ENV: "test"
   });
@@ -123,7 +122,19 @@ test("login rejects incorrect password and issues an HttpOnly session for correc
   assert.match(adminCookie, /^dornelas_admin=/);
 });
 
-test("/meta/publish is simulated and explicitly performs no external action", async () => {
+
+test("Meta and Google OAuth callbacks remain reachable without an admin session", async () => {
+  const meta = await request("/auth/meta/callback?state=invalid&code=test");
+  assert.equal(meta.status, 400);
+  assert.equal(meta.json?.error, "invalid_oauth_state");
+
+  const google = await request("/auth/google/callback?state=invalid&code=test");
+  assert.equal(google.status, 400);
+  assert.equal(google.json?.error, "invalid_oauth_state");
+});
+
+test("/meta/publish defaults to simulation when META_PUBLISH_MODE is absent", async () => {
+  assert.equal(process.env.META_PUBLISH_MODE, undefined);
   assert.ok(adminCookie, "login test must establish the test session first");
   const response = await request("/meta/publish", {
     method: "POST",
