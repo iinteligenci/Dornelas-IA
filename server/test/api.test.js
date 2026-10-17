@@ -85,6 +85,18 @@ test("GET /health returns JSON without secret values", async () => {
   assert.equal(JSON.stringify(response.json).includes(ADMIN_SESSION_SECRET_FOR_TEST), false);
 });
 
+test("admin panel serves from the backend and session status exposes only configuration booleans", async () => {
+  const panel = await request("/admin");
+  assert.equal(panel.status, 200);
+  assert.match(panel.headers.get("content-type") || "", /text\/html/i);
+  assert.match(panel.text, /Dornelas-IA/);
+  const anonymous = await request("/auth/session");
+  assert.equal(anonymous.status, 200);
+  assert.equal(anonymous.json?.authenticated, false);
+  assert.equal(typeof anonymous.json?.integrations?.dataStoreConfigured, "boolean");
+  assert.equal(JSON.stringify(anonymous.json).includes(ADMIN_SESSION_SECRET_FOR_TEST), false);
+});
+
 test("unknown root route returns JSON 404", async () => {
   const response = await request("/");
   assert.equal(response.status, 404);
@@ -121,6 +133,9 @@ test("login rejects incorrect password and issues an HttpOnly session for correc
   assert.match(setCookie || "", /Secure/i);
   adminCookie = (setCookie || "").split(";")[0];
   assert.match(adminCookie, /^dornelas_admin=/);
+  const session = await request("/auth/session", { cookie: adminCookie });
+  assert.equal(session.json?.authenticated, true);
+  assert.equal(typeof session.json?.integrations?.publishMode, "string");
 });
 
 

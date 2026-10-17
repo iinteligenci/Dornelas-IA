@@ -306,6 +306,38 @@ const server = await import("node:http").then(({ createServer }) =>
     const allowedOrigin = "https://iinteligenci.github.io";
     if (origin && origin !== allowedOrigin) { res.statusCode = 403; res.end(JSON.stringify({ error: "origin_not_allowed" })); return; }
 
+    if (req.method === "GET" && (requestUrl.pathname === "/admin" || requestUrl.pathname === "/admin/")) {
+      try {
+        const html = await fs.readFile(new URL("./admin/index.html", import.meta.url), "utf8");
+        res.setHeader("Content-Type", "text/html; charset=utf-8");
+        res.setHeader("Cache-Control", "no-store");
+        res.end(html);
+      } catch {
+        res.statusCode = 500; res.end(JSON.stringify({ error: "admin_panel_unavailable" }));
+      }
+      return;
+    }
+
+    if (req.method === "GET" && requestUrl.pathname === "/auth/session") {
+      res.setHeader("Cache-Control", "no-store");
+      res.end(JSON.stringify({
+        ok: true,
+        authenticated: validAdminSession(req),
+        integrations: {
+          dataStoreConfigured: Boolean(process.env.DATA_STORE_TOKEN && process.env.DATA_STORE_REPO),
+          encryptionConfigured: Boolean(tokenEncryptionKey()),
+          metaConfigured: Boolean(process.env.META_CLIENT_ID && process.env.META_CLIENT_SECRET && process.env.META_REDIRECT_URI),
+          googleConfigured: Boolean(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET && process.env.GOOGLE_REDIRECT_URI),
+          aiConfigured: Boolean(process.env.AI_API_BASE_URL && process.env.AI_API_KEY && process.env.AI_MODEL),
+          imageConfigured: Boolean(process.env.AI_API_BASE_URL && process.env.AI_API_KEY && process.env.AI_IMAGE_MODEL),
+          assetStorageConfigured: Boolean(process.env.GITHUB_TOKEN && process.env.CONTENT_ASSET_REPO),
+          schedulerConfigured: Boolean(process.env.DATA_STORE_TOKEN && process.env.DATA_STORE_REPO && process.env.SCHEDULER_SECRET),
+          publishMode: (process.env.META_PUBLISH_MODE || "simulate").toLowerCase()
+        }
+      }));
+      return;
+    }
+
     if (req.method === "POST" && requestUrl.pathname === "/auth/login") {
       const body = JSON.parse(await readBody(req).catch(() => "{}") || "{}");
       const configuredPassword = process.env.ADMIN_PASSWORD;

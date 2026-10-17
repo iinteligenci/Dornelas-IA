@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Dornelas-IA · Administração</title>
+  <style>
+    :root{color-scheme:dark;--bg:#111315;--panel:#1b1e21;--line:#34393e;--text:#f5f2ec;--muted:#a8afb5;--accent:#e2a14a;--good:#75c69a;--bad:#ed8a83}
+    *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:16px/1.5 system-ui,-apple-system,Segoe UI,sans-serif}main{max-width:980px;margin:0 auto;padding:28px 18px 56px}header{display:flex;align-items:center;justify-content:space-between;gap:16px;border-bottom:1px solid var(--line);padding-bottom:18px;margin-bottom:24px}h1{font-size:clamp(1.45rem,4vw,2rem);margin:0}h2{font-size:1.15rem;margin:0 0 14px}p{color:var(--muted)}.eyebrow{color:var(--accent);font-size:.8rem;text-transform:uppercase;letter-spacing:.12em}.panel{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:20px;margin:16px 0}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}.status{border:1px solid var(--line);border-radius:10px;padding:14px;min-height:88px}.status strong{display:block;margin-bottom:5px}.state{font-size:.9rem;color:var(--muted)}.state.good{color:var(--good)}.state.bad{color:var(--bad)}label{display:block;margin:12px 0 5px;color:var(--muted)}input{width:100%;padding:12px;border:1px solid var(--line);border-radius:8px;background:#101214;color:var(--text);font:inherit}button{border:0;border-radius:8px;background:var(--accent);color:#21170b;font:inherit;font-weight:700;padding:11px 16px;cursor:pointer}button.secondary{background:transparent;color:var(--text);border:1px solid var(--line)}button:disabled{opacity:.6;cursor:wait}.actions{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:16px}.message{min-height:1.5em;color:var(--muted)}.hidden{display:none!important}.notice{border-left:3px solid var(--accent);padding-left:12px}.small{font-size:.88rem;color:var(--muted)}
+  </style>
+</head>
+<body>
+<main>
+  <header><div><div class="eyebrow">Charcutaria Dornelas</div><h1>Dornelas-IA</h1><p style="margin:4px 0 0">Painel administrativo</p></div><button id="logout" class="secondary hidden" type="button">Sair</button></header>
+  <section id="loginPanel" class="panel">
+    <h2>Entrar</h2><p>Acesse com a senha administrativa. A senha é enviada somente ao backend; nenhum token de integração é exibido aqui.</p>
+    <form id="loginForm"><label for="password">Senha administrativa</label><input id="password" name="password" type="password" autocomplete="current-password" required>
+      <div class="actions"><button id="loginButton" type="submit">Entrar</button></div><p id="loginMessage" class="message" role="status" aria-live="polite"></p>
+    </form>
+  </section>
+  <section id="dashboard" class="hidden">
+    <div class="panel"><div class="eyebrow">Estado atual</div><h2>Integrações</h2><p>Este painel mostra apenas se as configurações necessárias existem. Nunca exibe chaves, tokens ou senhas.</p><div id="integrationGrid" class="grid" aria-live="polite"></div><div class="actions"><button id="refresh" type="button" class="secondary">Atualizar estado</button></div><p id="statusMessage" class="message" role="status" aria-live="polite"></p></div>
+    <div class="panel"><h2>Segurança de publicação</h2><p id="publishMode" class="notice">Verificando modo de publicação…</p><p class="small">A publicação real não é executada por esta tela. A aprovação humana continua obrigatória.</p></div>
+    <div class="panel"><h2>Próximas partes</h2><p>Fila de aprovação, pesquisa e roteiros, calendário e histórico, imagens e vídeos serão conectados às rotas reais em etapas posteriores. Nenhuma ação indisponível é apresentada como botão.</p></div>
+  </section>
+</main>
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const loginPanel = $('loginPanel'), dashboard = $('dashboard'), logout = $('logout');
+  const labels = {dataStoreConfigured:'Repositório privado de dados',encryptionConfigured:'Criptografia de tokens OAuth',metaConfigured:'Meta / Instagram OAuth',googleConfigured:'Google OAuth',aiConfigured:'IA de conteúdo',imageConfigured:'Geração de imagens',assetStorageConfigured:'Armazenamento de mídia pública',schedulerConfigured:'Agendador externo'};
+  function showLoggedIn(value){loginPanel.classList.toggle('hidden',value);dashboard.classList.toggle('hidden',!value);logout.classList.toggle('hidden',!value);}
+  async function readSession(){
+    const response = await fetch('/auth/session',{credentials:'same-origin'});
+    const data = await response.json();
+    showLoggedIn(Boolean(data.authenticated));
+    if(data.authenticated) renderStatus(data.integrations || {});
+  }
+  function renderStatus(status){
+    const grid = $('integrationGrid'); grid.replaceChildren();
+    for(const [key,label] of Object.entries(labels)){
+      const card = document.createElement('div'); card.className='status';
+      const title = document.createElement('strong'); title.textContent=label;
+      const state = document.createElement('div'); state.className='state '+(status[key]?'good':'bad'); state.textContent=status[key]?'Configurado':'Pendente de configuração';
+      card.append(title,state); grid.append(card);
+    }
+    $('publishMode').textContent = 'Modo de publicação: '+(status.publishMode || 'simulate')+'. Nenhuma publicação foi executada por esta consulta.';
+  }
+  $('loginForm').addEventListener('submit',async event=>{
+    event.preventDefault(); const button=$('loginButton'); button.disabled=true; button.textContent='Entrando…'; $('loginMessage').textContent='';
+    try{
+      const response=await fetch('/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},credentials:'same-origin',body:JSON.stringify({password:$('password').value})});
+      const data=await response.json(); if(!response.ok) throw new Error(data.message || data.error || 'Falha no login.');
+      $('password').value=''; $('loginMessage').textContent=''; await readSession();
+    }catch(error){$('loginMessage').textContent=error.message;}
+    finally{button.disabled=false;button.textContent='Entrar';}
+  });
+  $('refresh').addEventListener('click',async()=>{const button=$('refresh');button.disabled=true;button.textContent='Atualizando…';$('statusMessage').textContent='';try{await readSession();$('statusMessage').textContent='Estado atualizado.';}catch(error){$('statusMessage').textContent='Não foi possível consultar o estado: '+error.message;}finally{button.disabled=false;button.textContent='Atualizar estado';}});
+  logout.addEventListener('click',async()=>{logout.disabled=true;try{await fetch('/auth/logout',{method:'POST',credentials:'same-origin'});showLoggedIn(false);}catch(error){$('statusMessage').textContent='Não foi possível encerrar a sessão: '+error.message;}finally{logout.disabled=false;}});
+  readSession().catch(()=>{$('loginMessage').textContent='Não foi possível consultar a sessão. Atualize a página.';});
+})();
+</script>
+</body>
+</html>
