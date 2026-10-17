@@ -5,7 +5,12 @@ import { googleAuthorizeUrl, exchangeGoogleCode, googleApiGet, refreshGoogleAcce
 import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import { spawn } from "node:child_process";
-import ffmpegPath from "ffmpeg-static";
+let ffmpegPath = null;
+try {
+  ({ default: ffmpegPath } = await import("ffmpeg-static"));
+} catch {
+  // The API can start without ffmpeg; clip generation reports the missing dependency when requested.
+}
 import { runAI, generateImage } from "./integrations/ai.js";
 import { publishPublicAsset, githubJsonGet, githubJsonPut } from "./integrations/assets.js";
 import { SYSTEM_PROMPT, CAMPAIGN_PROMPT, CONTENT_PLAN_PROMPT, RESEARCH_PROMPT, SITE_ANALYSIS_PROMPT, REUSE_PROMPT } from "./agent/ai-prompts.js";
@@ -106,6 +111,7 @@ async function fetchSiteCatalog() {
 function schedulerPath(){ return process.env.SCHEDULE_FILE || "generated/ai/schedule.json"; }
 
 function runFfmpeg(args){
+  if (!ffmpegPath) return Promise.reject(new Error("ffmpeg não está instalado neste ambiente."));
   return new Promise((resolve,reject)=>{
     const p=spawn(ffmpegPath,args,{stdio:["ignore","ignore","pipe"]});
     let stderr="";
@@ -246,6 +252,9 @@ async function getInstagramTarget(){
 }
 
 async function publishInstagramMedia({mediaType,imageUrl,videoUrl,caption}){
+  if (process.env.META_PUBLISH_MODE === "simulate") {
+    return { simulated: true, externalActionPerformed: false, action: "instagram_publish", mediaType };
+  }
   const target=await getInstagramTarget();
   const creation=target.authType==="instagram_login"
     ? await instagramGraphPost({path:"/me/media",accessToken:metaConnection.accessToken,body:mediaType==="REELS"?{media_type:"REELS",video_url:videoUrl,caption}:{image_url:imageUrl,caption}})
@@ -257,15 +266,21 @@ async function publishInstagramMedia({mediaType,imageUrl,videoUrl,caption}){
 }
 
 async function getPublicTrends(){
-  const rr=await fetch("https://trends.google.com/trending/rss?geo=BR&hl=pt-BR",{headers:{"User-Agent":"Mozilla/5.0 Dornelas-IA"}});
+  if (process.env.NODE_ENV === "test") throw new Error("Consulta externa de tendências desativada durante testes; use entrada manual.");
+  const consultedAt = new Date().toISOString();
+  const rr=await fetch("https://trends.google.com/trending/rss?geo=BR&hl=pt-BR",{headers:{"User-Agent":"Mozilla/5.0 Dornelas-IA"},signal:AbortSignal.timeout(8000)});
   if(!rr.ok) throw new Error("Google Trends HTTP "+rr.status);
   const xml=await rr.text();
   const itemBlocks=xml.split("<item>").slice(1,16);
   const trends=itemBlocks.map(block=>{
     const pick=(tag)=>{const m=block.match(new RegExp("<"+tag+"[^>]*>([\\s\\S]*?)</"+tag+">","i"));return (m?.[1]||"").replace(/<!\\[CDATA\\[|\\]\\]>/g,"").replace(/<[^>]+>/g," ").trim();};
-    return {title:pick("title"),traffic:pick("ht:approx_traffic"),description:pick("description")};
-  }).filter(x=>x.title);
-  return {ok:true,source:"Google Trends público",trends};
+    const title=pick("title");
+    const traffic=pick("ht:approx_traffic")||null;
+    const url=pick("link")||null;
+    const publishedAt=pick("pubDate")||null;
+    return {title,url,publishedAt,consultedAt,traffic,performanceSignal:traffic?{type:"approximate_search_traffic",value:traffic}:null,description:pick("description")};
+  }).filter(x=>x.title&&x.url);
+  return {ok:true,source:"Google Trends público",consultedAt,trends,manualInputAvailable:trends.length===0};
 }
 
 const server = await import("node:http").then(({ createServer }) =>
@@ -303,8 +318,11 @@ const server = await import("node:http").then(({ createServer }) =>
       res.end(JSON.stringify({ ok: true })); return;
     }
 
+    const protectedGetPaths = new Set([
+      "/google/data", "/google/status", "/meta/data", "/meta/status", "/meta/overview", "/meta/accounts", "/site/analyze"
+    ]);
     const protectedRoute = (req.method !== "GET" && !requestUrl.pathname.startsWith("/auth/")) ||
-      (req.method === "GET" && (requestUrl.pathname.startsWith("/agent/") || requestUrl.pathname === "/google/data" || requestUrl.pathname === "/meta/data"));
+      (req.method === "GET" && (requestUrl.pathname.startsWith("/agent/") || protectedGetPaths.has(requestUrl.pathname)));
     if (protectedRoute && !validAdminSession(req)) {
       res.statusCode = 401; res.end(JSON.stringify({ error: "admin_login_required", message: "Entre com a senha administrativa para usar os recursos protegidos." })); return;
     }
@@ -511,6 +529,11 @@ const server = await import("node:http").then(({ createServer }) =>
         if(mediaType==="IMAGE"&&!input.imageUrl) throw new Error("imageUrl é obrigatório para IMAGE.");
         if(mediaType==="REELS"&&!input.videoUrl) throw new Error("videoUrl é obrigatório para REELS.");
         const result=await publishInstagramMedia({mediaType,imageUrl:input.imageUrl,videoUrl:input.videoUrl,caption:input.caption});
+        if (result.simulated) {
+          res.statusCode = 202;
+          res.end(JSON.stringify({ok:false,simulated:true,externalActionPerformed:false,message:"Modo simulado: nenhuma chamada foi feita à Meta e nada foi publicado.",action:result.action,mediaType:result.mediaType}));
+          return;
+        }
         res.end(JSON.stringify({ok:true,...result}));
       }catch(error){res.statusCode=502;res.end(JSON.stringify({error:"meta_publish_failed",message:error.message}));}
       return;
@@ -612,7 +635,7 @@ Não invente estoque, avaliações, resultados ou promoções.`,
     if (req.method === "POST" && req.url === "/agent/research") {
       try {
         const input=JSON.parse(await readBody(req)||"{}");
-        const result=await runAI({instructions:RESEARCH_PROMPT,input:JSON.stringify({business:"Defumados Dornelas",focus:input.focus||"conteúdo que gere vendas",catalog:input.catalog||null}),tools:[{type:"web_search"}]});
+        const result=await runAI({instructions:RESEARCH_PROMPT,input:JSON.stringify({business:"Charcutaria Dornelas",focus:input.focus||"conteúdo que gere vendas",catalog:input.catalog||null,manualSources:Array.isArray(input.manualSources)?input.manualSources:[],consultedAt:new Date().toISOString()}),tools:[{type:"web_search"}]});
         res.end(JSON.stringify({ok:true,ai:true,model:result.model,research:cleanJson(result.text),responseId:result.responseId}));
       } catch(error) { res.statusCode=502; res.end(JSON.stringify({error:"research_failed",message:error.message})); }
       return;
@@ -737,6 +760,11 @@ Não invente estoque, avaliações, resultados ou promoções.`,
         if(Number(input.autonomyLevel||0)<2) throw new Error("Autonomia nível 2 ou superior é necessária.");
         if(!input.imageUrl||!input.caption) throw new Error("A campanha autorizada precisa de imagem pública e legenda.");
         const result=await publishInstagramMedia({mediaType:"IMAGE",imageUrl:input.imageUrl,caption:input.caption});
+        if (result.simulated) {
+          res.statusCode = 202;
+          res.end(JSON.stringify({ok:false,approved:true,simulated:true,externalActionPerformed:false,message:"A aprovação foi validada em simulação; nada foi enviado à Meta."}));
+          return;
+        }
         res.end(JSON.stringify({ok:true,approved:true,...result}));
       }catch(error){res.statusCode=502;res.end(JSON.stringify({error:"campaign_approval_failed",message:error.message}));}
       return;
@@ -776,7 +804,7 @@ Não invente estoque, avaliações, resultados ou promoções.`,
           ideas=cleanJson(ai.text);
         }catch{}
         res.end(JSON.stringify({...base,ideas}));
-      }catch(error){res.statusCode=502;res.end(JSON.stringify({error:"trends_failed",message:error.message}));}
+      }catch(error){res.statusCode=502;res.end(JSON.stringify({error:"trends_failed",message:"A fonte pública Google Trends não pôde ser consultada; nenhuma tendência foi inventada.",details:error.message,manualInputAvailable:true,manualInputFields:["sourceUrl","consultedAt","performanceSignal"]}));}
       return;
     }
 
@@ -961,8 +989,8 @@ Cada quickWin deve ser executável e verificável. Não invente dados. Se não h
       return;
     }
 
-    if (req.method === "GET" && req.url === "/health") {
-      res.end(JSON.stringify({ ok: true, service: "dornelas-ia-agent", aiConfigured:Boolean(process.env.AI_API_BASE_URL && process.env.AI_API_KEY && process.env.AI_MODEL), imageConfigured:Boolean(process.env.AI_API_BASE_URL && process.env.AI_API_KEY && process.env.AI_IMAGE_MODEL), assetStorageConfigured:Boolean(process.env.GITHUB_TOKEN), schedulerConfigured:Boolean(process.env.GITHUB_TOKEN && (process.env.SCHEDULER_SECRET||process.env.DORNELAS_SCHEDULER_SECRET)) }));
+    if (req.method === "GET" && requestUrl.pathname === "/health") {
+      res.end(JSON.stringify({ ok: true, service: "dornelas-ia-agent", version: process.env.RENDER_GIT_COMMIT || process.env.GITHUB_SHA || "local", aiConfigured:Boolean(process.env.AI_API_BASE_URL && process.env.AI_API_KEY && process.env.AI_MODEL), imageConfigured:Boolean(process.env.AI_API_BASE_URL && process.env.AI_API_KEY && process.env.AI_IMAGE_MODEL), assetStorageConfigured:Boolean(process.env.GITHUB_TOKEN), schedulerConfigured:Boolean(process.env.GITHUB_TOKEN && (process.env.SCHEDULER_SECRET||process.env.DORNELAS_SCHEDULER_SECRET)) }));
       return;
     }
 
