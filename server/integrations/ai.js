@@ -1,8 +1,15 @@
-function providerConfig() {
-  const key = process.env.AI_API_KEY;
-  const base = (process.env.AI_API_BASE_URL || "").replace(/\/+$/, "");
-  if (!key || !base) throw new Error("Configure AI_API_KEY e AI_API_BASE_URL no ambiente do servidor.");
-  return { key, base };
+function providerConfig({ allowGemini = true } = {}) {
+  if (allowGemini && process.env.GEMINI_API_KEY) {
+    return {
+      key: process.env.GEMINI_API_KEY,
+      base: (process.env.GEMINI_API_BASE_URL || "https://generativelanguage.googleapis.com/v1beta/openai").replace(/\\/+$/, ""),
+      provider: "gemini"
+    };
+  }
+  const key = process.env.AI_API_KEY || process.env.OPENAI_API_KEY;
+  const base = (process.env.AI_API_BASE_URL || (process.env.OPENAI_API_KEY ? "https://api.openai.com/v1" : "")).replace(/\\/+$/, "");
+  if (!key || !base) throw new Error("Configure GEMINI_API_KEY (opção gratuita, sujeita aos limites do Google AI Studio) ou uma chave de API compatível em AI_API_KEY/OPENAI_API_KEY.");
+  return { key, base, provider: "openai-compatible" };
 }
 function toChatMessages(instructions, input) {
   const messages = [{ role: "system", content: String(instructions || "Você é um assistente útil.") }];
@@ -23,11 +30,12 @@ function toChatMessages(instructions, input) {
   messages.push({ role: "user", content: JSON.stringify(input ?? {}) });
   return messages;
 }
-export async function runAI({ instructions, input, model = process.env.AI_MODEL, tools = undefined }) {
+export async function runAI({ instructions, input, model = process.env.GEMINI_MODEL || process.env.AI_MODEL, tools = undefined }) {
   const { key, base } = providerConfig();
-  if (!model) throw new Error("Configure AI_MODEL no ambiente do servidor.");
+  if (!model) throw new Error("Configure GEMINI_MODEL (recomendado) ou AI_MODEL no ambiente do servidor.");
   const body = { model, messages: toChatMessages(instructions, input), temperature: Number(process.env.AI_TEMPERATURE || 0.3) };
-  if (tools?.length) body.tools = tools;
+  // Tool schemas are not compatible across all OpenAI-compatible gateways. Avoid sending unsupported web_search tools to Gemini's compatibility endpoint.
+  if (tools?.length && process.env.AI_ENABLE_TOOLS === "true") body.tools = tools;
   const response = await fetch(base + "/chat/completions", {
     method: "POST", headers: { "Content-Type": "application/json", Authorization: "Bearer " + key },
     body: JSON.stringify(body), signal: AbortSignal.timeout(Number(process.env.AI_REQUEST_TIMEOUT_MS || 60000))
@@ -39,7 +47,7 @@ export async function runAI({ instructions, input, model = process.env.AI_MODEL,
   return { text: text.trim(), model: data.model || model, responseId: data.id || null, raw: data };
 }
 export async function generateImage({ prompt, model = process.env.AI_IMAGE_MODEL, size = "1024x1024" }) {
-  const { key, base } = providerConfig();
+  const { key, base } = providerConfig({ allowGemini: false });
   if (!model) throw new Error("Geração de imagem não configurada: defina AI_IMAGE_MODEL.");
   const response = await fetch(base + "/images/generations", {
     method: "POST", headers: { "Content-Type": "application/json", Authorization: "Bearer " + key },
