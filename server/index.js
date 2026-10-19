@@ -409,7 +409,7 @@ const server = await import("node:http").then(({ createServer }) =>
           const input = JSON.parse(await readBody(req) || "{}");
           if (!String(input.caption || "").trim()) throw new Error("caption é obrigatório.");
           const current = await githubJsonGet(queuePath); const items = Array.isArray(current.content) ? current.content : [];
-          const item = { id: crypto.randomUUID(), headline: String(input.headline || "Rascunho Dornelas"), caption: String(input.caption).trim(), imageUrl: input.imageUrl || null, videoUrl: input.videoUrl || null, status: "pending", createdAt: new Date().toISOString(), approvedAt: null };
+          const item = { id: crypto.randomUUID(), headline: String(input.headline || "Rascunho Dornelas"), caption: String(input.caption).trim(), imageUrl: input.imageUrl || null, videoUrl: input.videoUrl || null, format: input.format || "POST", contentPackage: input.contentPackage || null, source: input.source || "manual", status: "pending", createdAt: new Date().toISOString(), approvedAt: null };
           items.push(item); await githubJsonPut(queuePath, items, current.sha || undefined);
           res.statusCode = 201; res.end(JSON.stringify({ ok: true, item })); return;
         }
@@ -915,6 +915,61 @@ Não invente estoque, avaliações, resultados ou promoções.`,
           res.end(JSON.stringify(result));
         }
       }catch(error){res.statusCode=502;res.end(JSON.stringify({error:"meta_graph_failed",message:error.message}));}
+      return;
+    }
+
+    if (req.method === "POST" && req.url === "/agent/content-studio/generate") {
+      try {
+        const site = await fetchSiteSnapshot();
+        const catalog = await fetchSiteCatalog().catch(error => ({ products: [], catalogWarning: error.message }));
+        const trends = await getPublicTrends().catch(error => ({ trends: [], researchWarning: error.message }));
+        let instagram = { connected: false, profile: null, media: [], insights: [], limitations: [] };
+        try {
+          const target = await getInstagramTarget();
+          const [profile, media] = target.authType === "instagram_login"
+            ? await Promise.all([
+                instagramGraphGet({ path: "/me", accessToken: metaConnection.accessToken, params: { fields: "id,username,name,followers_count,media_count" } }),
+                instagramGraphGet({ path: "/me/media", accessToken: metaConnection.accessToken, params: { fields: "id,caption,like_count,comments_count,timestamp,permalink,media_type,media_url,thumbnail_url", limit: "50" } })
+              ])
+            : await Promise.all([
+                metaGraphGet({ path: "/" + target.igId, accessToken: metaConnection.accessToken, params: { fields: "id,username,name,followers_count,media_count" } }),
+                metaGraphGet({ path: "/" + target.igId + "/media", accessToken: metaConnection.accessToken, params: { fields: "id,caption,like_count,comments_count,timestamp,permalink,media_type,media_url,thumbnail_url", limit: "50" } })
+              ]);
+          instagram = { connected: true, profile, media: media.data || [], authType: target.authType, limitations: ["A API pode não expor retenção, tempo médio assistido ou todos os sinais de viralização."] };
+        } catch (error) {
+          instagram.limitations.push("Instagram não pôde ser consultado nesta execução: " + error.message);
+        }
+        const instructions = `Você é o diretor de conteúdo e estrategista de crescimento da Charcutaria Dornelas, marca capixaba de carnes defumadas artesanais, com tradição familiar de mais de 30 anos, técnica de lenha de eucalipto e forno de alvenaria. Crie um pacote editorial para revisão humana, em português brasileiro natural. Analise dados do Instagram fornecidos, o site/catálogo e as tendências públicas disponíveis. Nunca invente preços, estoque, depoimentos, métricas ou fatos. Se faltarem dados comerciais, escreva [CONFIRMAR]. Tendência não é sinônimo de viral: só chame algo de viral se houver evidência explícita na fonte; cite URL e sinal de desempenho quando disponível. Não copie roteiros de terceiros: adapte a ideia de forma original para Dornelas. Gere exatamente 6 peças: 2 CAROUSEL, 2 REEL e 2 STORY. Para cada peça retorne JSON com {headline,format,objective,audience,hook,caption,cta,slides:[{number,text,visualDirection}],videoScript:[{time,scene,voiceover,onScreenText}],storyFrames:[{number,text,visualDirection,interaction}],assetBrief,sourceMediaId,sourceMediaUrl,trendSources:[{title,url,signal}],hypothesis,checksBeforePublishing}. Preencha apenas os campos adequados ao formato; os demais podem ser arrays vazios. Para Reels, entregue roteiro filmável, cenas, texto na tela, fala/voz e duração estimada; não afirme que um arquivo de vídeo foi renderizado. Para carrosséis, escreva o texto de cada slide e direção visual. Para Stories, crie sequência de quadros com sticker/interação sugerida. Priorize utilidade, autenticidade, retenção, conversa e vendas sem parecer propaganda em todas as peças. Retorne JSON válido {summary,accountAnalysis:{strengths,opportunities,limitations},trendFindings:[{title,url,signal,consultedAt,contentAngle}],drafts:[...]}.`;
+        const input = { business: "Defumados Dornelas", site: { url: site.url, title: site.title, text: site.text, links: site.links }, catalog, instagram: { profile: instagram.profile, media: (instagram.media || []).map(item => ({ id: item.id, caption: item.caption, media_type: item.media_type, timestamp: item.timestamp, permalink: item.permalink, like_count: item.like_count, comments_count: item.comments_count, thumbnail_url: item.thumbnail_url })) , limitations: instagram.limitations }, publicTrends: trends.trends || [], researchWarning: trends.researchWarning || null };
+        const ai = await runAI({ instructions, input: JSON.stringify(input).slice(0, 50000) });
+        const generated = cleanJson(ai.text);
+        if (!Array.isArray(generated.drafts) || !generated.drafts.length) throw new Error("A IA não retornou uma lista válida de rascunhos.");
+        const queuePath = "generated/ai/approval-queue.json";
+        const current = await githubJsonGet(queuePath);
+        const items = Array.isArray(current.content) ? current.content : [];
+        const created = generated.drafts.slice(0, 6).map((draft, index) => ({
+          id: crypto.randomUUID(),
+          headline: String(draft.headline || "Conteúdo Dornelas " + (index + 1)),
+          caption: String(draft.caption || ""),
+          status: "pending",
+          format: String(draft.format || "POST").toUpperCase(),
+          contentPackage: draft,
+          source: "content-studio",
+          createdAt: new Date().toISOString(),
+          approvedAt: null
+        }));
+        items.push(...created);
+        await githubJsonPut(queuePath, items, current.sha || undefined);
+        const report = { ok: true, createdAt: new Date().toISOString(), model: ai.model, accountAnalysis: generated.accountAnalysis || {}, trendFindings: generated.trendFindings || [], createdCount: created.length, items: created, limitations: instagram.limitations || [] };
+        const reportPath = "generated/ai/content-studio-latest.json";
+        const previousReport = await githubJsonGet(reportPath);
+        await githubJsonPut(reportPath, report, previousReport.sha || undefined);
+        res.statusCode = 201;
+        res.end(JSON.stringify(report));
+      } catch (error) {
+        res.statusCode = 502;
+        res.end(JSON.stringify({ error: "content_studio_failed", message: error.message }));
+      }
       return;
     }
 
