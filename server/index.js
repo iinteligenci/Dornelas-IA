@@ -834,6 +834,12 @@ Não invente estoque, avaliações, resultados ou promoções.`,
     }
 
     if (req.method === "POST" && req.url === "/agent/scheduler/run") {
+      const schedulerSecret = process.env.SCHEDULER_SECRET;
+      if (!schedulerSecret || req.headers.authorization !== `Bearer ${schedulerSecret}`) {
+        res.statusCode = 401;
+        res.end(JSON.stringify({ error: "scheduler_unauthorized" }));
+        return;
+      }
       await loadPersistedMetaConnection();
       try{
         const current=await githubJsonGet(schedulerPath()); const list=Array.isArray(current.content)?current.content:[]; const now=Date.now();
