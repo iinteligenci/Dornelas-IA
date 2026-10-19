@@ -87,6 +87,46 @@ const demoContext = {
 
 function readBody(req) { return new Promise(async (resolve) => { let body=""; for await (const chunk of req) body+=chunk; resolve(body); }); }
 
+function normalizeContentText(value) {
+  return String(value || "").normalize("NFD").replace(/[\\u0300-\\u036f]/g, "")
+    .toLowerCase().replace(/https?:\\/\\/\\S+/g, " ").replace(/[^a-z0-9]+/g, " ").trim().replace(/\\s+/g, " ");
+}
+function contentFingerprint(draft) {
+  const pkg = draft?.contentPackage || draft || {};
+  const slides = Array.isArray(pkg.slides) ? pkg.slides.map(x => x.text || "").join(" ") : "";
+  const scripts = Array.isArray(pkg.videoScript) ? pkg.videoScript.map(x => [x.scene, x.voiceover, x.onScreenText].join(" ")).join(" ") : "";
+  const stories = Array.isArray(pkg.storyFrames) ? pkg.storyFrames.map(x => x.text || "").join(" ") : "";
+  return normalizeContentText([draft?.headline, draft?.caption, pkg.hook, pkg.objective, slides, scripts, stories].join(" "));
+}
+function contentTokens(value) {
+  return new Set(normalizeContentText(value).split(" ").filter(word => word.length > 2));
+}
+function contentIsDuplicate(candidate, previousItems) {
+  const candidatePkg = candidate?.contentPackage || candidate || {};
+  const candidateText = contentFingerprint(candidate);
+  if (!candidateText) return false;
+  const candidateHeadline = normalizeContentText(candidate?.headline || candidatePkg.headline);
+  const candidateHook = normalizeContentText(candidatePkg.hook);
+  const candidateTokens = contentTokens(candidateText);
+  for (const previous of previousItems) {
+    const previousPkg = previous?.contentPackage || previous || {};
+    const previousText = contentFingerprint(previous);
+    if (!previousText) continue;
+    if (candidateText === previousText) return true;
+    const previousHeadline = normalizeContentText(previous?.headline || previousPkg.headline);
+    const previousHook = normalizeContentText(previousPkg.hook);
+    if (candidateHeadline && previousHeadline && candidateHeadline === previousHeadline) return true;
+    if (candidateHook && previousHook && candidateHook === previousHook) return true;
+    const previousTokens = contentTokens(previousText);
+    let overlap = 0;
+    for (const token of candidateTokens) if (previousTokens.has(token)) overlap += 1;
+    const union = candidateTokens.size + previousTokens.size - overlap;
+    const jaccard = union ? overlap / union : 0;
+    if (candidateTokens.size >= 8 && previousTokens.size >= 8 && jaccard >= 0.82) return true;
+  }
+  return false;
+}
+
 function cleanJson(text) {
   const raw=String(text||"").trim().replaceAll("\`\`\`json","").replaceAll("\`\`\`","").trim();
   try { return JSON.parse(raw); } catch { return { raw }; }
@@ -944,17 +984,37 @@ Não invente estoque, avaliações, resultados ou promoções.`,
         } catch (error) {
           instagram.limitations.push("Instagram não pôde ser consultado nesta execução: " + error.message);
         }
-        const instructions = `Você é o diretor de conteúdo e estrategista de crescimento da Charcutaria Dornelas, marca capixaba de carnes defumadas artesanais, com tradição familiar de mais de 30 anos, técnica de lenha de eucalipto e forno de alvenaria. Crie um pacote editorial para revisão humana, em português brasileiro natural. Analise dados do Instagram fornecidos, o site/catálogo e as tendências públicas disponíveis. Nunca invente preços, estoque, depoimentos, métricas ou fatos. Se faltarem dados comerciais, escreva [CONFIRMAR]. Tendência não é sinônimo de viral: só chame algo de viral se houver evidência explícita na fonte; cite URL e sinal de desempenho quando disponível. Não copie roteiros de terceiros: adapte a ideia de forma original para Dornelas. Gere exatamente 6 peças: 2 CAROUSEL, 2 REEL e 2 STORY. Para cada peça retorne JSON com {headline,format,objective,audience,hook,caption,cta,slides:[{number,text,visualDirection}],videoScript:[{time,scene,voiceover,onScreenText}],storyFrames:[{number,text,visualDirection,interaction}],assetBrief,sourceMediaId,sourceMediaUrl,trendSources:[{title,url,signal}],hypothesis,checksBeforePublishing}. Preencha apenas os campos adequados ao formato; os demais podem ser arrays vazios. Para Reels, entregue roteiro filmável, cenas, texto na tela, fala/voz e duração estimada; não afirme que um arquivo de vídeo foi renderizado. Para carrosséis, escreva o texto de cada slide e direção visual. Para Stories, crie sequência de quadros com sticker/interação sugerida. Priorize utilidade, autenticidade, retenção, conversa e vendas sem parecer propaganda em todas as peças. Retorne JSON válido {summary,accountAnalysis:{strengths,opportunities,limitations},trendFindings:[{title,url,signal,consultedAt,contentAngle}],drafts:[...]}.`;
-        const input = { business: "Defumados Dornelas", site: { url: site.url, title: site.title, text: site.text, links: site.links, images: site.images || [] }, catalog, instagram: { profile: instagram.profile, media: (instagram.media || []).map(item => ({ id: item.id, caption: item.caption, media_type: item.media_type, timestamp: item.timestamp, permalink: item.permalink, media_url: item.media_url || null, thumbnail_url: item.thumbnail_url || null, like_count: item.like_count, comments_count: item.comments_count })) , limitations: instagram.limitations }, publicTrends: trends.trends || [], researchWarning: trends.researchWarning || null };
-        const ai = await runAI({ instructions, input: JSON.stringify(input).slice(0, 50000) });
-        const generated = cleanJson(ai.text);
-        if (!Array.isArray(generated.drafts) || !generated.drafts.length) throw new Error("A IA não retornou uma lista válida de rascunhos.");
         const queuePath = "generated/ai/approval-queue.json";
         const current = await githubJsonGet(queuePath);
         const items = Array.isArray(current.content) ? current.content : [];
+        const recentContentHistory = items.slice(-100).map(item => ({
+          headline: item.headline,
+          format: item.format,
+          status: item.status,
+          caption: item.caption,
+          hook: item.contentPackage?.hook,
+          objective: item.contentPackage?.objective,
+          slides: (item.contentPackage?.slides || []).map(slide => slide.text),
+          videoScript: (item.contentPackage?.videoScript || []).map(scene => [scene.scene, scene.voiceover, scene.onScreenText].join(" ")),
+          storyFrames: (item.contentPackage?.storyFrames || []).map(frame => frame.text),
+          createdAt: item.createdAt
+        }));
+        const instructions = `Você é o diretor de conteúdo e estrategista de crescimento da Charcutaria Dornelas, marca capixaba de carnes defumadas artesanais, com tradição familiar de mais de 30 anos, técnica de lenha de eucalipto e forno de alvenaria. Crie um pacote editorial para revisão humana, em português brasileiro natural. Analise dados do Instagram fornecidos, o site/catálogo e as tendências públicas disponíveis. Nunca invente preços, estoque, depoimentos, métricas ou fatos. Se faltarem dados comerciais, escreva [CONFIRMAR]. Tendência não é sinônimo de viral: só chame algo de viral se houver evidência explícita na fonte; cite URL e sinal de desempenho quando disponível. Não copie roteiros de terceiros: adapte a ideia de forma original para Dornelas. Gere exatamente 6 peças NOVAS e distintas: 2 CAROUSEL, 2 REEL e 2 STORY. É obrigatório consultar recentContentHistory: não repita nem parafraseie temas, ganchos, headlines, legendas, sequência de slides, roteiro ou sequência de Stories já existentes. Varie o ângulo editorial, formato de abordagem, público/necessidade e promessa útil. Se uma tendência ou produto já foi abordado, encontre um recorte realmente diferente; trocar apenas palavras não conta como novidade. Para cada peça retorne JSON com {headline,format,objective,audience,hook,caption,cta,slides:[{number,text,visualDirection}],videoScript:[{time,scene,voiceover,onScreenText}],storyFrames:[{number,text,visualDirection,interaction}],assetBrief,sourceMediaId,sourceMediaUrl,trendSources:[{title,url,signal}],hypothesis,checksBeforePublishing}. Preencha apenas os campos adequados ao formato; os demais podem ser arrays vazios. Para Reels, entregue roteiro filmável, cenas, texto na tela, fala/voz e duração estimada; não afirme que um arquivo de vídeo foi renderizado. Para carrosséis, escreva o texto de cada slide e direção visual. Para Stories, crie sequência de quadros com sticker/interação sugerida. Priorize utilidade, autenticidade, retenção, conversa e vendas sem parecer propaganda em todas as peças. Retorne JSON válido {summary,accountAnalysis:{strengths,opportunities,limitations},trendFindings:[{title,url,signal,consultedAt,contentAngle}],drafts:[...]}.`;
+        const input = { business: "Defumados Dornelas", recentContentHistory, site: { url: site.url, title: site.title, text: site.text, links: site.links, images: site.images || [] }, catalog, instagram: { profile: instagram.profile, media: (instagram.media || []).map(item => ({ id: item.id, caption: item.caption, media_type: item.media_type, timestamp: item.timestamp, permalink: item.permalink, media_url: item.media_url || null, thumbnail_url: item.thumbnail_url || null, like_count: item.like_count, comments_count: item.comments_count })) , limitations: instagram.limitations }, publicTrends: trends.trends || [], researchWarning: trends.researchWarning || null };
+        const ai = await runAI({ instructions, input: JSON.stringify(input).slice(0, 50000) });
+        const generated = cleanJson(ai.text);
+        if (!Array.isArray(generated.drafts) || !generated.drafts.length) throw new Error("A IA não retornou uma lista válida de rascunhos.");
+        const uniqueDrafts = [];
+        for (const draft of generated.drafts) {
+          if (contentIsDuplicate(draft, items) || contentIsDuplicate(draft, uniqueDrafts)) continue;
+          uniqueDrafts.push(draft);
+        }
+        if (uniqueDrafts.length < 6) {
+          throw new Error("A IA retornou conteúdos repetidos ou muito semelhantes aos anteriores. Nada novo foi adicionado à fila; tente novamente para gerar ideias realmente diferentes.");
+        }
         const siteImages = Array.isArray(site.images) ? site.images : [];
         const ownMedia = Array.isArray(instagram.media) ? instagram.media : [];
-        const created = generated.drafts.slice(0, 6).map((draft, index) => {
+        const created = uniqueDrafts.slice(0, 6).map((draft, index) => {
           const sourceMedia = ownMedia.find(media => draft.sourceMediaId && String(media.id) === String(draft.sourceMediaId))
             || ownMedia.find(media => draft.sourceMediaUrl && (media.permalink === draft.sourceMediaUrl || media.media_url === draft.sourceMediaUrl))
             || null;
