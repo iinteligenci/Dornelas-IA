@@ -96,7 +96,39 @@
   }
   function busy(button,value,label){button.disabled=value;if(!button.dataset.label)button.dataset.label=button.textContent;button.textContent=value?label:button.dataset.label;}
   function showJson(id,value){$(id).textContent=JSON.stringify(value,null,2);}
-  async function loadQueue(){const box=$('approvalQueue');box.replaceChildren();$('queueMessage').textContent='';try{const data=await api('/admin/api/approvals');if(!data.items.length){box.textContent='Nenhum rascunho na fila.';return;}for(const item of data.items){const card=document.createElement('article');card.className='status';const title=document.createElement('strong');title.textContent=item.headline||'Rascunho';const state=document.createElement('div');state.className='state';state.textContent=`${item.status} · ${new Date(item.createdAt).toLocaleString('pt-BR')}`;const caption=document.createElement('p');caption.textContent=item.caption;card.append(title,state,caption);if(item.status==='pending'){for(const action of ['approve','reject']){const button=document.createElement('button');button.className=action==='reject'?'secondary':'';button.textContent=action==='approve'?'Aprovar rascunho':'Rejeitar rascunho';button.addEventListener('click',async()=>{button.disabled=true;try{await api(`/admin/api/approvals/${encodeURIComponent(item.id)}/${action}`,{method:'POST',body:'{}'});await loadQueue();$('queueMessage').textContent=action==='approve'?'Aprovação registrada; nada foi publicado.':'Rascunho rejeitado.';}catch(error){$('queueMessage').textContent=error.message;button.disabled=false;}});card.append(button);}}box.append(card);}}catch(error){$('queueMessage').textContent='Falha ao carregar fila: '+error.message;}}
+  async function loadQueue(){
+    const box=$('approvalQueue');box.replaceChildren();$('queueMessage').textContent='';
+    try{
+      const data=await api('/admin/api/approvals');
+      if(!data.items.length){box.textContent='Nenhum rascunho na fila.';return;}
+      for(const item of data.items){
+        const card=document.createElement('article');card.className='status';
+        const title=document.createElement('strong');title.textContent=item.headline||'Rascunho';
+        const state=document.createElement('div');state.className='state';state.textContent=`${item.format||'POST'} · ${item.status} · ${new Date(item.createdAt).toLocaleString('pt-BR')}`;
+        const caption=document.createElement('p');caption.textContent=item.caption||'';card.append(title,state,caption);
+        if(item.imageUrl){
+          const image=document.createElement('img');image.src=item.imageUrl;image.alt='Imagem de referência para '+(item.headline||'conteúdo Dornelas');image.loading='lazy';image.referrerPolicy='no-referrer';
+          image.style.cssText='display:block;width:100%;max-height:260px;object-fit:cover;border-radius:8px;margin:10px 0';
+          image.onerror=()=>{const note=document.createElement('p');note.textContent='A imagem não carregou na prévia. Use o link para verificar a mídia.';image.replaceWith(note);};card.append(image);
+          const link=document.createElement('a');link.href=item.imageUrl;link.target='_blank';link.rel='noopener noreferrer';link.textContent='Abrir imagem de referência';link.style.cssText='display:block;overflow-wrap:anywhere;color:var(--accent);margin-bottom:8px';card.append(link);
+        }
+        if(item.videoUrl){const videoLink=document.createElement('a');videoLink.href=item.videoUrl;videoLink.target='_blank';videoLink.rel='noopener noreferrer';videoLink.textContent='Abrir vídeo próprio de referência';videoLink.style.cssText='display:block;overflow-wrap:anywhere;color:var(--accent);margin-bottom:8px';card.append(videoLink);}
+        if(item.contentPackage){
+          const details=document.createElement('details');const summary=document.createElement('summary');summary.textContent='Ver roteiro, slides, referências e fontes';
+          const pre=document.createElement('pre');pre.className='small';pre.style.cssText='white-space:pre-wrap;overflow-wrap:anywhere';pre.textContent=JSON.stringify(item.contentPackage,null,2);details.append(summary,pre);card.append(details);
+        }
+        if(item.status==='pending'){
+          for(const action of ['approve','reject']){
+            const button=document.createElement('button');button.className=action==='reject'?'secondary':'';button.style.marginRight='8px';button.style.marginTop='10px';
+            button.textContent=action==='approve'?'Aprovar rascunho':'Rejeitar rascunho';
+            button.addEventListener('click',async()=>{button.disabled=true;try{await api(`/admin/api/approvals/${encodeURIComponent(item.id)}/${action}`,{method:'POST',body:'{}'});await loadQueue();$('queueMessage').textContent=action==='approve'?'Aprovação registrada; nada foi publicado.':'Rascunho rejeitado.';}catch(error){$('queueMessage').textContent=error.message;button.disabled=false;}});
+            card.append(button);
+          }
+        }
+        box.append(card);
+      }
+    }catch(error){$('queueMessage').textContent='Falha ao carregar fila: '+error.message;}
+  }
   async function loadSchedule(){const box=$('scheduleList');box.textContent='Carregando…';try{const data=await api('/agent/schedule');box.textContent=JSON.stringify(data.schedule||[],null,2);}catch(error){box.textContent='Falha ao carregar calendário: '+error.message;}}
   async function loadHistory(){const box=$('historyList');box.textContent='Carregando…';try{const data=await api('/admin/api/history');box.textContent=JSON.stringify(data.items||[],null,2);}catch(error){box.textContent='Falha ao carregar histórico: '+error.message;}}
   $('refreshQueue').addEventListener('click',loadQueue);$('refreshSchedule').addEventListener('click',loadSchedule);$('refreshHistory').addEventListener('click',loadHistory);
