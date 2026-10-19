@@ -388,8 +388,10 @@ const server = await import("node:http").then(({ createServer }) =>
         res.statusCode = 429; res.setHeader("Retry-After", String(attempt.retryAfterSeconds));
         res.end(JSON.stringify({ error: "scheduler_rate_limited", message: "Limite de tentativas excedido. Aguarde antes de tentar novamente." })); return;
       }
-      const supplied = req.headers["x-scheduler-secret"];
-      if (!schedulerSecretMatches(typeof supplied === "string" ? supplied : "", schedulerSecret)) { res.statusCode = 401; res.end(JSON.stringify({ error: "invalid_scheduler_secret" })); return; }
+      const bearer = String(req.headers.authorization || "").match(/^Bearer\s+(.+)$/i)?.[1] || "";
+      const legacyHeader = req.headers["x-scheduler-secret"];
+      const supplied = bearer || (typeof legacyHeader === "string" ? legacyHeader : "");
+      if (!schedulerSecretMatches(supplied, schedulerSecret)) { res.statusCode = 401; res.end(JSON.stringify({ error: "invalid_scheduler_secret" })); return; }
       schedulerAttemptLimiter.reset(clientKey);
     }
     const protectedRoute = (req.method !== "GET" && !requestUrl.pathname.startsWith("/auth/")) ||
