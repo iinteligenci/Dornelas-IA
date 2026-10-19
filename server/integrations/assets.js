@@ -22,7 +22,8 @@ export async function publishPublicAsset({ base64, filename, mimeType = "image/p
   });
   const data = await response.json();
   if (!response.ok) throw new Error(data?.message || `GitHub asset upload failed: ${response.status}`);
-  const base = process.env.CONTENT_ASSET_BASE_URL || "https://iinteligenci.github.io/dorn/";
+  const branch = process.env.CONTENT_ASSET_BRANCH || "main";
+  const base = process.env.CONTENT_ASSET_BASE_URL || `https://raw.githubusercontent.com/${owner}/${name}/${branch}/`;
   const publicUrl = base.replace(/\/$/,"/") + path;
   return { published: true, publicUrl, path, commit: data.commit?.sha || null };
 }
