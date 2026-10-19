@@ -77,9 +77,31 @@ export async function runAI({ instructions, input, model = process.env.GEMINI_MO
   if (typeof text !== "string" || !text.trim()) throw new Error("O provedor de IA respondeu, mas não retornou texto.");
   return { text: text.trim(), model: data.model || model, responseId: data.id || null, raw: data };
 }
-export async function generateImage({ prompt, model = process.env.AI_IMAGE_MODEL, size = "1024x1024" }) {
+export async function generateImage({ prompt, model = process.env.GEMINI_IMAGE_MODEL || process.env.AI_IMAGE_MODEL, size = "1024x1024" }) {
+  // Use Google's native image-capable Gemini endpoint when the user's Gemini key is configured.
+  // This avoids requiring OpenAI/Lovable billing for the content studio.
+  if (process.env.GEMINI_API_KEY) {
+    const imageModel = model || "gemini-2.5-flash-image";
+    const response = await fetch("https://generativelanguage.googleapis.com/v1beta/models/" + encodeURIComponent(imageModel) + ":generateContent", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-goog-api-key": process.env.GEMINI_API_KEY.trim() },
+      body: JSON.stringify({
+        contents: [{ role: "user", parts: [{ text: String(prompt || "") + "\n\nCreate one polished, photorealistic visual asset for a Brazilian artisanal smoked-meat brand. No logos, no fake labels, no gibberish text, no watermark. Compose for social media; use realistic food photography and natural lighting." }] }],
+        generationConfig: { responseModalities: ["TEXT", "IMAGE"] }
+      }),
+      signal: AbortSignal.timeout(Number(process.env.AI_REQUEST_TIMEOUT_MS || 90000))
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data?.error?.message || "Falha na geração de imagem Gemini (HTTP " + response.status + ").");
+    const parts = data?.candidates?.flatMap(candidate => candidate?.content?.parts || []) || [];
+    const imagePart = parts.find(part => part?.inlineData?.data || part?.inline_data?.data);
+    const inline = imagePart?.inlineData || imagePart?.inline_data;
+    if (!inline?.data) throw new Error("Gemini respondeu sem imagem. Verifique se o modelo de imagem está disponível para esta chave.");
+    return { b64: inline.data, mimeType: inline.mimeType || inline.mime_type || "image/png", model: imageModel };
+  }
+
   const { key, base } = providerConfig({ allowGemini: false });
-  if (!model) throw new Error("Geração de imagem não configurada: defina AI_IMAGE_MODEL.");
+  if (!model) throw new Error("Geração de imagem não configurada: defina GEMINI_API_KEY ou AI_IMAGE_MODEL com um provedor compatível.");
   const response = await fetch(base + "/images/generations", {
     method: "POST", headers: { "Content-Type": "application/json", Authorization: "Bearer " + key },
     body: JSON.stringify({ model, prompt, size, n: 1 }),
@@ -89,5 +111,5 @@ export async function generateImage({ prompt, model = process.env.AI_IMAGE_MODEL
   if (!response.ok) throw new Error(data?.error?.message || "Falha na geração de imagem (HTTP " + response.status + ").");
   const item = data?.data?.[0];
   if (!item?.b64_json) throw new Error("O provedor não retornou imagem em base64.");
-  return { b64: item.b64_json, model: data.model || model };
+  return { b64: item.b64_json, mimeType: "image/png", model: data.model || model };
 }
