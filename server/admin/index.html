@@ -103,7 +103,46 @@
   $('campaignForm').addEventListener('submit',async event=>{event.preventDefault();const button=$('campaignButton');busy(button,true,'Gerando…');$('campaignMessage').textContent='';try{lastCampaign=await api('/agent/campaign',{method:'POST',body:JSON.stringify({product:$('campaignProduct').value})});showJson('campaignOutput',lastCampaign);$('queueDraftButton').disabled=false;$('campaignMessage').textContent='Rascunho gerado. Revise antes de enviar para aprovação.';}catch(error){lastCampaign=null;$('queueDraftButton').disabled=true;$('campaignMessage').textContent='Não foi possível gerar rascunho: '+error.message;}finally{busy(button,false);}});
   $('queueDraftButton').addEventListener('click',async()=>{if(!lastCampaign?.campaign)return;const button=$('queueDraftButton');busy(button,true,'Salvando…');try{const campaign=lastCampaign.campaign;await api('/admin/api/approvals',{method:'POST',body:JSON.stringify({headline:campaign.headline||lastCampaign.product||'Rascunho Dornelas',caption:campaign.caption||campaign.text||JSON.stringify(campaign)})});$('campaignMessage').textContent='Rascunho enviado à fila de aprovação.';await loadQueue();}catch(error){$('campaignMessage').textContent='Falha ao salvar na fila: '+error.message;}finally{busy(button,false);}});
   $('scheduleForm').addEventListener('submit',async event=>{event.preventDefault();const button=$('scheduleButton');busy(button,true,'Agendando…');try{const data=await api('/agent/schedule',{method:'POST',body:JSON.stringify({item:{scheduledFor:new Date($('scheduledFor').value).toISOString(),caption:$('scheduleCaption').value,imageUrl:$('scheduleImage').value,approved:true,mediaType:'IMAGE'}})});$('scheduleMessage').textContent='Conteúdo aprovado agendado. A publicação continua em modo simulado por padrão.';showJson('scheduleList',data.schedule||data.item);await loadSchedule();}catch(error){$('scheduleMessage').textContent='Falha ao agendar: '+error.message;}finally{busy(button,false);}});
-  $('imageForm').addEventListener('submit',async event=>{event.preventDefault();const button=$('imageButton');busy(button,true,'Gerando…');try{const data=await api('/agent/image',{method:'POST',body:JSON.stringify({prompt:$('imagePrompt').value})});showJson('imageOutput',data);$('imageMessage').textContent='Geração concluída; confira o resultado e a URL.';}catch(error){$('imageMessage').textContent='Falha na geração: '+error.message;}finally{busy(button,false);}});
+  $('imageForm').addEventListener('submit',async event=>{
+    event.preventDefault();
+    const button=$('imageButton'), output=$('imageOutput');
+    busy(button,true,'Gerando…');
+    output.replaceChildren();
+    $('imageMessage').textContent='Gerando imagem…';
+    try{
+      const data=await api('/agent/image',{method:'POST',body:JSON.stringify({prompt:$('imagePrompt').value})});
+      output.replaceChildren();
+      if(data.dataUrl){
+        const image=document.createElement('img');
+        image.src=data.dataUrl;
+        image.alt='Imagem gerada para a Charcutaria Dornelas';
+        image.style.cssText='display:block;width:100%;max-width:720px;height:auto;border-radius:10px;margin:12px 0';
+        output.append(image);
+        const download=document.createElement('a');
+        download.href=data.dataUrl;
+        download.download='dornelas-imagem.png';
+        download.textContent='Baixar imagem PNG';
+        download.style.cssText='display:inline-block;margin:8px 0;color:var(--accent);font-weight:700';
+        output.append(download);
+      }
+      if(data.publicUrl){
+        const link=document.createElement('a');
+        link.href=data.publicUrl;
+        link.target='_blank';
+        link.rel='noopener noreferrer';
+        link.textContent='Abrir URL pública da imagem';
+        link.style.cssText='display:block;margin:8px 0;color:var(--accent);overflow-wrap:anywhere';
+        output.append(link);
+      }
+      const details=document.createElement('p');
+      details.className='small';
+      details.textContent='Modelo: '+(data.model||'não informado')+'. '+(data.published?'Imagem salva em endereço público.':'Imagem gerada, mas não publicada: '+(data.reason||'configure o armazenamento público para obter uma URL permanente.'));
+      output.append(details);
+      if(!data.dataUrl&&!data.publicUrl) showJson('imageOutput',data);
+      $('imageMessage').textContent=data.published?'Imagem gerada e publicada.':'Imagem gerada; você pode visualizá-la e baixá-la aqui.';
+    }catch(error){$('imageMessage').textContent='Falha na geração: '+error.message;}
+    finally{busy(button,false);}
+  });
   $('clipForm').addEventListener('submit',async event=>{event.preventDefault();const button=$('clipButton');busy(button,true,'Processando…');try{const data=await api('/agent/clip',{method:'POST',body:JSON.stringify({sourceUrl:$('clipSource').value,startSeconds:Number($('clipStart').value),durationSeconds:Number($('clipDuration').value)})});showJson('clipOutput',data);$('clipMessage').textContent='Corte concluído; confira o resultado.';}catch(error){$('clipMessage').textContent='Falha no corte: '+error.message;}finally{busy(button,false);}});
   readSession().then(()=>{if(!$('dashboard').classList.contains('hidden')){loadQueue();loadSchedule();loadHistory();}}).catch(()=>{$('loginMessage').textContent='Não foi possível consultar a sessão. Atualize a página.';});
 })();
