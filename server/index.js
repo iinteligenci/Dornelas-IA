@@ -88,8 +88,8 @@ const demoContext = {
 function readBody(req) { return new Promise(async (resolve) => { let body=""; for await (const chunk of req) body+=chunk; resolve(body); }); }
 
 function normalizeContentText(value) {
-  return String(value || "").normalize("NFD").replace(/[\\u0300-\\u036f]/g, "")
-    .toLowerCase().replace(/https?:\\/\\/\\S+/g, " ").replace(/[^a-z0-9]+/g, " ").trim().replace(/\\s+/g, " ");
+  return String(value || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase().replace(/https?:\/\/\S+/g, " ").replace(/[^a-z0-9]+/g, " ").trim().replace(/\s+/g, " ");
 }
 function contentFingerprint(draft) {
   const pkg = draft?.contentPackage || draft || {};
