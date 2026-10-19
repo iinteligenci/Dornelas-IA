@@ -98,11 +98,11 @@ async function fetchSiteSnapshot() {
   if(!response.ok) throw new Error("Site retornou HTTP "+response.status);
   const html=await response.text();
   const title=(html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1]||"").replace(/<[^>]+>/g,"").trim();
-  const links=[...html.matchAll(/<a[^>]+href=["']([^"']+)["'][^>]*>([\\s\\S]*?)<\\/a>/gi)].slice(0,60).map(m=>({href:m[1],text:m[2].replace(/<[^>]+>/g," ").replace(/\\s+/g," ").trim()}));
-  const rawImages=[...html.matchAll(/<img\\b[^>]*?src=["']([^"']+)["'][^>]*>/gi)].map(m=>m[1]);
-  const metaImages=[...html.matchAll(/<meta\\b[^>]*(?:property|name)=["'](?:og:image|twitter:image)["'][^>]*content=["']([^"']+)["'][^>]*>/gi)].map(m=>m[1]);
-  const images=[...new Set([...metaImages,...rawImages].map(src=>{try{return new URL(src,url).href;}catch{return null;}}).filter(src=>src&&/^https?:\\/\\//i.test(src)))].slice(0,40);
-  const text=html.replace(/<script[\\s\\S]*?<\\/script>/gi," ").replace(/<style[\\s\\S]*?<\\/style>/gi," ").replace(/<[^>]+>/g," ").replace(/\\s+/g," ").trim().slice(0,18000);
+  const links=[...html.matchAll(/<a[^>]+href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)].slice(0,60).map(m=>({href:m[1],text:m[2].replace(/<[^>]+>/g," ").replace(/\s+/g," ").trim()}));
+  const rawImages=[...html.matchAll(/<img\b[^>]*?src=["']([^"']+)["'][^>]*>/gi)].map(m=>m[1]);
+  const metaImages=[...html.matchAll(/<meta\b[^>]*(?:property|name)=["'](?:og:image|twitter:image)["'][^>]*content=["']([^"']+)["'][^>]*>/gi)].map(m=>m[1]);
+  const images=[...new Set([...metaImages,...rawImages].map(src=>{try{return new URL(src,url).href;}catch{return null;}}).filter(src=>src&&/^https?:\/\//i.test(src)))].slice(0,40);
+  const text=html.replace(/<script[\s\S]*?<\/script>/gi," ").replace(/<style[\s\S]*?<\/style>/gi," ").replace(/<[^>]+>/g," ").replace(/\s+/g," ").trim().slice(0,18000);
   return {url,title,links,text,images};
 }
 
