@@ -343,7 +343,7 @@ const server = await import("node:http").then(({ createServer }) =>
           encryptionConfigured: Boolean(tokenEncryptionKey()),
           metaConfigured: Boolean(process.env.META_CLIENT_ID && process.env.META_CLIENT_SECRET && process.env.META_REDIRECT_URI),
           googleConfigured: Boolean(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET && process.env.GOOGLE_REDIRECT_URI),
-          aiConfigured: Boolean(process.env.AI_API_BASE_URL && process.env.AI_API_KEY && process.env.AI_MODEL),
+          aiConfigured: Boolean((process.env.GEMINI_API_KEY && (process.env.GEMINI_MODEL || process.env.AI_MODEL)) || ((process.env.LOVABLE_API_KEY || process.env.AI_API_KEY || process.env.OPENAI_API_KEY) && (process.env.AI_API_BASE_URL || process.env.LOVABLE_API_KEY || process.env.OPENAI_API_KEY) && (process.env.AI_MODEL || process.env.GEMINI_MODEL))),
           imageConfigured: Boolean(process.env.AI_API_BASE_URL && process.env.AI_API_KEY && process.env.AI_IMAGE_MODEL),
           assetStorageConfigured: Boolean(process.env.GITHUB_TOKEN && process.env.CONTENT_ASSET_REPO),
           schedulerConfigured: Boolean(process.env.DATA_STORE_TOKEN && process.env.DATA_STORE_REPO && process.env.SCHEDULER_SECRET),

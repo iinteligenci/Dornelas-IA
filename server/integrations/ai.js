@@ -49,14 +49,32 @@ export async function runAI({ instructions, input, model = process.env.GEMINI_MO
   const body = { model, messages: toChatMessages(instructions, input), temperature: Number(process.env.AI_TEMPERATURE || 0.3) };
   // Keep optional tool calling disabled unless explicitly enabled; providers do not share identical tool schemas.
   if (tools?.length && process.env.AI_ENABLE_TOOLS === "true") body.tools = tools;
-  const response = await fetch(base + "/chat/completions", {
-    method: "POST", headers: { "Content-Type": "application/json", Authorization: "Bearer " + key },
-    body: JSON.stringify(body), signal: AbortSignal.timeout(Number(process.env.AI_REQUEST_TIMEOUT_MS || 90000))
-  });
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(data?.error?.message || "Falha no provedor de IA (HTTP " + response.status + ").");
+  const url = base + "/chat/completions";
+  const maxRetries = Math.max(0, Math.min(3, Number(process.env.AI_RETRY_COUNT ?? 2) || 0));
+  let response;
+  let data = {};
+  for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
+    response = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: "Bearer " + key },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(Number(process.env.AI_REQUEST_TIMEOUT_MS || 90000))
+    });
+    data = await response.json().catch(() => ({}));
+    const retryable = [429, 500, 502, 503, 504].includes(response.status);
+    if (response.ok || !retryable || attempt === maxRetries) break;
+    const retryAfter = Number(response.headers.get("retry-after"));
+    const delayMs = Number.isFinite(retryAfter) && retryAfter > 0
+      ? Math.min(5000, retryAfter * 1000)
+      : Math.min(2500, 500 * (2 ** attempt));
+    await new Promise(resolve => setTimeout(resolve, delayMs));
+  }
+  if (!response.ok) {
+    const detail = data?.error?.message || data?.message || response.statusText || "sem detalhes do provedor";
+    throw new Error("Provedor de IA indisponível (HTTP " + response.status + "): " + String(detail).slice(0, 500));
+  }
   const text = data?.choices?.[0]?.message?.content;
-  if (typeof text !== "string" || !text.trim()) throw new Error("O provedor de IA não retornou texto.");
+  if (typeof text !== "string" || !text.trim()) throw new Error("O provedor de IA respondeu, mas não retornou texto.");
   return { text: text.trim(), model: data.model || model, responseId: data.id || null, raw: data };
 }
 export async function generateImage({ prompt, model = process.env.AI_IMAGE_MODEL, size = "1024x1024" }) {
