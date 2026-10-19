@@ -98,9 +98,12 @@ async function fetchSiteSnapshot() {
   if(!response.ok) throw new Error("Site retornou HTTP "+response.status);
   const html=await response.text();
   const title=(html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1]||"").replace(/<[^>]+>/g,"").trim();
-  const links=[...html.matchAll(/<a[^>]+href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)].slice(0,60).map(m=>({href:m[1],text:m[2].replace(/<[^>]+>/g," ").replace(/\s+/g," ").trim()}));
-  const text=html.replace(/<script[\s\S]*?<\/script>/gi," ").replace(/<style[\s\S]*?<\/style>/gi," ").replace(/<[^>]+>/g," ").replace(/\s+/g," ").trim().slice(0,18000);
-  return {url,title,links,text};
+  const links=[...html.matchAll(/<a[^>]+href=["']([^"']+)["'][^>]*>([\\s\\S]*?)<\\/a>/gi)].slice(0,60).map(m=>({href:m[1],text:m[2].replace(/<[^>]+>/g," ").replace(/\\s+/g," ").trim()}));
+  const rawImages=[...html.matchAll(/<img\\b[^>]*?src=["']([^"']+)["'][^>]*>/gi)].map(m=>m[1]);
+  const metaImages=[...html.matchAll(/<meta\\b[^>]*(?:property|name)=["'](?:og:image|twitter:image)["'][^>]*content=["']([^"']+)["'][^>]*>/gi)].map(m=>m[1]);
+  const images=[...new Set([...metaImages,...rawImages].map(src=>{try{return new URL(src,url).href;}catch{return null;}}).filter(src=>src&&/^https?:\\/\\//i.test(src)))].slice(0,40);
+  const text=html.replace(/<script[\\s\\S]*?<\\/script>/gi," ").replace(/<style[\\s\\S]*?<\\/style>/gi," ").replace(/<[^>]+>/g," ").replace(/\\s+/g," ").trim().slice(0,18000);
+  return {url,title,links,text,images};
 }
 
 let catalogCache = { at: 0, value: null };
@@ -942,24 +945,42 @@ Não invente estoque, avaliações, resultados ou promoções.`,
           instagram.limitations.push("Instagram não pôde ser consultado nesta execução: " + error.message);
         }
         const instructions = `Você é o diretor de conteúdo e estrategista de crescimento da Charcutaria Dornelas, marca capixaba de carnes defumadas artesanais, com tradição familiar de mais de 30 anos, técnica de lenha de eucalipto e forno de alvenaria. Crie um pacote editorial para revisão humana, em português brasileiro natural. Analise dados do Instagram fornecidos, o site/catálogo e as tendências públicas disponíveis. Nunca invente preços, estoque, depoimentos, métricas ou fatos. Se faltarem dados comerciais, escreva [CONFIRMAR]. Tendência não é sinônimo de viral: só chame algo de viral se houver evidência explícita na fonte; cite URL e sinal de desempenho quando disponível. Não copie roteiros de terceiros: adapte a ideia de forma original para Dornelas. Gere exatamente 6 peças: 2 CAROUSEL, 2 REEL e 2 STORY. Para cada peça retorne JSON com {headline,format,objective,audience,hook,caption,cta,slides:[{number,text,visualDirection}],videoScript:[{time,scene,voiceover,onScreenText}],storyFrames:[{number,text,visualDirection,interaction}],assetBrief,sourceMediaId,sourceMediaUrl,trendSources:[{title,url,signal}],hypothesis,checksBeforePublishing}. Preencha apenas os campos adequados ao formato; os demais podem ser arrays vazios. Para Reels, entregue roteiro filmável, cenas, texto na tela, fala/voz e duração estimada; não afirme que um arquivo de vídeo foi renderizado. Para carrosséis, escreva o texto de cada slide e direção visual. Para Stories, crie sequência de quadros com sticker/interação sugerida. Priorize utilidade, autenticidade, retenção, conversa e vendas sem parecer propaganda em todas as peças. Retorne JSON válido {summary,accountAnalysis:{strengths,opportunities,limitations},trendFindings:[{title,url,signal,consultedAt,contentAngle}],drafts:[...]}.`;
-        const input = { business: "Defumados Dornelas", site: { url: site.url, title: site.title, text: site.text, links: site.links }, catalog, instagram: { profile: instagram.profile, media: (instagram.media || []).map(item => ({ id: item.id, caption: item.caption, media_type: item.media_type, timestamp: item.timestamp, permalink: item.permalink, like_count: item.like_count, comments_count: item.comments_count, thumbnail_url: item.thumbnail_url })) , limitations: instagram.limitations }, publicTrends: trends.trends || [], researchWarning: trends.researchWarning || null };
+        const input = { business: "Defumados Dornelas", site: { url: site.url, title: site.title, text: site.text, links: site.links, images: site.images || [] }, catalog, instagram: { profile: instagram.profile, media: (instagram.media || []).map(item => ({ id: item.id, caption: item.caption, media_type: item.media_type, timestamp: item.timestamp, permalink: item.permalink, media_url: item.media_url || null, thumbnail_url: item.thumbnail_url || null, like_count: item.like_count, comments_count: item.comments_count })) , limitations: instagram.limitations }, publicTrends: trends.trends || [], researchWarning: trends.researchWarning || null };
         const ai = await runAI({ instructions, input: JSON.stringify(input).slice(0, 50000) });
         const generated = cleanJson(ai.text);
         if (!Array.isArray(generated.drafts) || !generated.drafts.length) throw new Error("A IA não retornou uma lista válida de rascunhos.");
         const queuePath = "generated/ai/approval-queue.json";
         const current = await githubJsonGet(queuePath);
         const items = Array.isArray(current.content) ? current.content : [];
-        const created = generated.drafts.slice(0, 6).map((draft, index) => ({
-          id: crypto.randomUUID(),
-          headline: String(draft.headline || "Conteúdo Dornelas " + (index + 1)),
-          caption: String(draft.caption || ""),
-          status: "pending",
-          format: String(draft.format || "POST").toUpperCase(),
-          contentPackage: draft,
-          source: "content-studio",
-          createdAt: new Date().toISOString(),
-          approvedAt: null
-        }));
+        const siteImages = Array.isArray(site.images) ? site.images : [];
+        const ownMedia = Array.isArray(instagram.media) ? instagram.media : [];
+        const created = generated.drafts.slice(0, 6).map((draft, index) => {
+          const sourceMedia = ownMedia.find(media => draft.sourceMediaId && String(media.id) === String(draft.sourceMediaId))
+            || ownMedia.find(media => draft.sourceMediaUrl && (media.permalink === draft.sourceMediaUrl || media.media_url === draft.sourceMediaUrl))
+            || null;
+          const mediaUrl = sourceMedia?.media_url || draft.sourceMediaUrl || null;
+          const thumbnailUrl = sourceMedia?.thumbnail_url || null;
+          const isVideo = String(sourceMedia?.media_type || "").toUpperCase() === "VIDEO";
+          const imageUrl = thumbnailUrl || (isVideo ? null : mediaUrl) || siteImages[index % Math.max(siteImages.length, 1)] || null;
+          const assetSources = [
+            ...(sourceMedia ? [{ type: isVideo ? "instagram_video" : "instagram_image", url: sourceMedia.permalink || mediaUrl || thumbnailUrl, mediaUrl, thumbnailUrl, label: "Mídia própria do Instagram" }] : []),
+            ...(!sourceMedia && imageUrl ? [{ type: "website_image", url: imageUrl, label: "Imagem encontrada no site" }] : [])
+          ];
+          const contentPackage = { ...draft, assetSources, assetStatus: imageUrl || mediaUrl ? "existing_asset_attached" : "no_accessible_asset", assetNote: "A mídia anexada é uma referência/arquivo existente; esta execução não renderiza novas imagens nem monta um vídeo final." };
+          return {
+            id: crypto.randomUUID(),
+            headline: String(draft.headline || "Conteúdo Dornelas " + (index + 1)),
+            caption: String(draft.caption || ""),
+            imageUrl,
+            videoUrl: isVideo ? mediaUrl : null,
+            status: "pending",
+            format: String(draft.format || "POST").toUpperCase(),
+            contentPackage,
+            source: "content-studio",
+            createdAt: new Date().toISOString(),
+            approvedAt: null
+          };
+        });
         items.push(...created);
         await githubJsonPut(queuePath, items, current.sha || undefined);
         const report = { ok: true, createdAt: new Date().toISOString(), model: ai.model, accountAnalysis: generated.accountAnalysis || {}, trendFindings: generated.trendFindings || [], createdCount: created.length, items: created, limitations: instagram.limitations || [] };
