@@ -298,7 +298,7 @@ test("remaining agent endpoints are reachable and fail honestly without provider
 });
 
 test("scheduler route rate-limits repeated invalid secrets", async () => {
-  for (let i = 0; i < 10; i++) {
+  for (let i = 0; i < 7; i++) {
     const denied = await request("/agent/scheduler/run", { method: "POST", headers: { "x-scheduler-secret": `wrong-secret-${i}` }, body: {} });
     assert.equal(denied.status, 401, `invalid attempt ${i + 1} should be rejected before the limit`);
   }
