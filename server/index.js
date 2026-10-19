@@ -981,6 +981,39 @@ Não invente estoque, avaliações, resultados ou promoções.`,
             approvedAt: null
           };
         });
+        // Produce real image assets when Gemini image generation and public asset storage are configured.
+        // Each image is independent; quota/provider failures are recorded on that draft without losing the text package.
+        if (process.env.GEMINI_API_KEY || process.env.AI_IMAGE_MODEL) {
+          for (const item of created) {
+            try {
+              const brief = item.contentPackage?.assetBrief || item.contentPackage?.headline || item.headline;
+              const formatGuide = item.format === "CAROUSEL"
+                ? "Create the cover visual for a carousel; leave clear negative space for later typography."
+                : item.format === "STORY"
+                  ? "Create a vertical 9:16 Story visual, keep the main subject centered and leave space for a poll or question sticker."
+                  : "Create a vertical 9:16 Reel cover / social video thumbnail.";
+              const generatedImage = await generateImage({
+                prompt: "Charcutaria Dornelas, Brazilian artisanal smoked meats from Espírito Santo. " + String(brief) + ". " + formatGuide + " Premium but authentic small-producer food photography, smoked bacon/sausage/meat only when relevant, natural warm light, realistic texture, clean composition. Do not add text, prices, packaging labels, logos, or claims.",
+                size: item.format === "STORY" || item.format === "REEL" ? "1024x1792" : "1024x1024"
+              });
+              const asset = await publishPublicAsset({
+                base64: generatedImage.b64,
+                filename: "content-" + item.id + ".png",
+                mimeType: generatedImage.mimeType || "image/png"
+              });
+              if (asset.published && asset.publicUrl) {
+                item.imageUrl = asset.publicUrl;
+                item.contentPackage.generatedImage = { url: asset.publicUrl, model: generatedImage.model, status: "generated" };
+                item.contentPackage.assetStatus = "generated_asset_attached";
+                item.contentPackage.assetNote = "Imagem gerada para este rascunho. Revise fidelidade visual, identidade da marca e texto final antes de publicar.";
+              } else {
+                item.contentPackage.generatedImage = { status: "generated_but_not_persisted", reason: asset.reason || "Armazenamento público não configurado." };
+              }
+            } catch (error) {
+              item.contentPackage.generatedImage = { status: "generation_failed", reason: String(error.message || error).slice(0, 300) };
+            }
+          }
+        }
         items.push(...created);
         await githubJsonPut(queuePath, items, current.sha || undefined);
         const report = { ok: true, createdAt: new Date().toISOString(), model: ai.model, accountAnalysis: generated.accountAnalysis || {}, trendFindings: generated.trendFindings || [], createdCount: created.length, items: created, limitations: instagram.limitations || [] };
