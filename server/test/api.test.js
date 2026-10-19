@@ -41,7 +41,7 @@ before(async () => {
   baseUrl = `http://127.0.0.1:${port}`;
   const env = { ...process.env };
   for (const name of [
-    "AI_API_BASE_URL", "AI_API_KEY", "AI_MODEL", "AI_IMAGE_MODEL", "GITHUB_TOKEN",
+    "AI_API_BASE_URL", "AI_API_KEY", "AI_MODEL", "AI_IMAGE_MODEL", "GEMINI_API_KEY", "GEMINI_API_BASE_URL", "GEMINI_MODEL", "LOVABLE_API_KEY", "OPENAI_API_KEY", "GITHUB_TOKEN",
     "CONTENT_ASSET_REPO", "CONTENT_ASSET_BRANCH", "DATA_STORE_TOKEN", "DATA_STORE_REPO", "DATA_STORE_BRANCH", "TOKEN_ENCRYPTION_KEY", "META_ACCESS_TOKEN", "META_CLIENT_SECRET",
     "GOOGLE_CLIENT_SECRET", "INSTAGRAM_CLIENT_SECRET", "SCHEDULER_SECRET", "META_PUBLISH_MODE"
   ]) delete env[name];
@@ -200,7 +200,7 @@ test("agent routes report missing external configuration rather than inventing r
   const research = await request("/agent/research", { method: "POST", cookie: adminCookie, body: { focus: "teste" } });
   assert.equal(research.status, 502);
   assert.equal(research.json?.error, "research_failed");
-  assert.match(research.json?.message || "", /AI_API_KEY|AI_API_BASE_URL/i);
+  assert.match(research.json?.message || "", /GEMINI_API_KEY|AI_API_KEY|AI_API_BASE_URL/i);
 
   const contentPlan = await request("/agent/content-plan", { method: "POST", cookie: adminCookie, body: {} });
   assert.equal(contentPlan.status, 502);
@@ -217,7 +217,7 @@ test("image, clip, campaign and scheduler routes fail closed when dependencies o
   const image = await request("/agent/image", { method: "POST", cookie: adminCookie, body: { prompt: "teste" } });
   assert.equal(image.status, 502);
   assert.equal(image.json?.error, "image_generation_failed");
-  assert.match(image.json?.message || "", /AI_API_KEY|AI_API_BASE_URL/i);
+  assert.match(image.json?.message || "", /GEMINI_API_KEY|AI_API_KEY|AI_API_BASE_URL/i);
 
   const clip = await request("/agent/clip", { method: "POST", cookie: adminCookie, body: {} });
   assert.equal(clip.status, 502);
@@ -227,7 +227,7 @@ test("image, clip, campaign and scheduler routes fail closed when dependencies o
   const campaign = await request("/agent/campaign", { method: "POST", cookie: adminCookie, body: { product: "Bacon" } });
   assert.equal(campaign.status, 502);
   assert.equal(campaign.json?.error, "ai_campaign_failed");
-  assert.match(campaign.json?.message || "", /AI_API_KEY|AI_API_BASE_URL/i);
+  assert.match(campaign.json?.message || "", /GEMINI_API_KEY|AI_API_KEY|AI_API_BASE_URL/i);
 
   const scheduleWrite = await request("/agent/schedule", { method: "POST", cookie: adminCookie, body: {} });
   assert.equal(scheduleWrite.status, 502);
