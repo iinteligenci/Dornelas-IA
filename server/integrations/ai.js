@@ -1,8 +1,20 @@
+function normalizeGeminiBaseUrl(value) {
+  const fallback = "https://generativelanguage.googleapis.com/v1beta/openai";
+  let base = String(value || fallback).trim().replace(/\/+$/, "");
+  // Accept common variants pasted into Render and normalize them to the OpenAI-compatible API root.
+  base = base.replace(/\/chat\/completions$/i, "");
+  base = base.replace(/\/v1beta\/openai\/v1$/i, "/v1beta/openai");
+  if (/^https:\/\/generativelanguage\.googleapis\.com\/v1beta$/i.test(base)) {
+    base += "/openai";
+  }
+  return base;
+}
+
 function providerConfig({ allowGemini = true } = {}) {
   if (allowGemini && process.env.GEMINI_API_KEY) {
     return {
-      key: process.env.GEMINI_API_KEY,
-      base: (process.env.GEMINI_API_BASE_URL || "https://generativelanguage.googleapis.com/v1beta/openai").replace(/\/+$/, ""),
+      key: process.env.GEMINI_API_KEY.trim(),
+      base: normalizeGeminiBaseUrl(process.env.GEMINI_API_BASE_URL),
       provider: "gemini"
     };
   }
@@ -31,7 +43,7 @@ function toChatMessages(instructions, input) {
   messages.push({ role: "user", content: JSON.stringify(input ?? {}) });
   return messages;
 }
-export async function runAI({ instructions, input, model = process.env.GEMINI_MODEL || process.env.AI_MODEL, tools = undefined }) {
+export async function runAI({ instructions, input, model = process.env.GEMINI_MODEL || process.env.AI_MODEL || "gemini-3.8-flash", tools = undefined }) {
   const { key, base } = providerConfig();
   if (!model) throw new Error("Configure GEMINI_MODEL (recomendado) ou AI_MODEL no ambiente do servidor.");
   const body = { model, messages: toChatMessages(instructions, input), temperature: Number(process.env.AI_TEMPERATURE || 0.3) };
@@ -39,7 +51,7 @@ export async function runAI({ instructions, input, model = process.env.GEMINI_MO
   if (tools?.length && process.env.AI_ENABLE_TOOLS === "true") body.tools = tools;
   const response = await fetch(base + "/chat/completions", {
     method: "POST", headers: { "Content-Type": "application/json", Authorization: "Bearer " + key },
-    body: JSON.stringify(body), signal: AbortSignal.timeout(Number(process.env.AI_REQUEST_TIMEOUT_MS || 60000))
+    body: JSON.stringify(body), signal: AbortSignal.timeout(Number(process.env.AI_REQUEST_TIMEOUT_MS || 90000))
   });
   const data = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(data?.error?.message || "Falha no provedor de IA (HTTP " + response.status + ").");
@@ -53,7 +65,7 @@ export async function generateImage({ prompt, model = process.env.AI_IMAGE_MODEL
   const response = await fetch(base + "/images/generations", {
     method: "POST", headers: { "Content-Type": "application/json", Authorization: "Bearer " + key },
     body: JSON.stringify({ model, prompt, size, n: 1 }),
-    signal: AbortSignal.timeout(Number(process.env.AI_REQUEST_TIMEOUT_MS || 60000))
+    signal: AbortSignal.timeout(Number(process.env.AI_REQUEST_TIMEOUT_MS || 90000))
   });
   const data = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(data?.error?.message || "Falha na geração de imagem (HTTP " + response.status + ").");
