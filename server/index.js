@@ -655,11 +655,14 @@ const server = await import("node:http").then(({ createServer }) =>
         const input=JSON.parse(await readBody(req)||"{}");
         const message=String(input.message||"").trim();
         if(!message){res.statusCode=400;res.end(JSON.stringify({error:"message_required"}));return;}
-        const site=await fetchSiteSnapshot().catch(()=>({url:process.env.SITE_URL||"",title:"Defumados Dornelas",text:"",links:[]}));
-        let catalog=input.catalog||null;
-        if(!catalog){
-          try { catalog=await fetchSiteCatalog(); } catch {}
-        }
+        // Chat must not wait for external website/catalog requests: either can stall the
+        // user's message before the actual model call. Use only a short best-effort site fetch
+        // and rely on supplied catalog/history when available.
+        const site=await Promise.race([
+          fetchSiteSnapshot(),
+          new Promise((_,reject)=>setTimeout(()=>reject(new Error("site context timeout")),4000))
+        ]).catch(()=>({url:process.env.SITE_URL||"",title:"Defumados Dornelas",text:"",links:[]}));
+        const catalog=input.catalog||null;
         const instagram=input.instagram||null;
         const instructions=`Você é a IA comercial da Defumados Dornelas. Seu único objetivo é aumentar vendas.
 Você funciona mesmo quando o Instagram não está conectado. Nesse caso, use o site, catálogo, tendências públicas e prints enviados pelo usuário; nunca finja que leu dados privados da Meta.
