@@ -1,7 +1,8 @@
 const MAX_STEPS = 8;
 const RISK_LEVELS = new Set(["low", "medium", "high"]);
+const EXTERNAL_ACTION = /\b(publish|publicar|send|enviar|delete|excluir|apagar|pagar|transferir|postar|agendar|upload|alterar|modificar|comprar|contratar)\b/i;
 function parseJson(text) {
-  const raw = String(text || "").trim().replace(/^\x60{3}(?:json)?\\s*/i, "").replace(/\\s*\x60{3}$/, "");
+  const raw = String(text || "").trim().replace(/^\x60{3}(?:json)?\s*/i, "").replace(/\s*\x60{3}$/, "");
   try { return JSON.parse(raw); } catch {
     const start = raw.indexOf("{"), end = raw.lastIndexOf("}");
     if (start < 0 || end <= start) throw new Error("BRAIN_INVALID_PLAN_JSON");
@@ -15,7 +16,8 @@ function normalizePlan(value, objective) {
     const title = String(step?.title || "").trim().slice(0, 120);
     const action = String(step?.action || "").trim().slice(0, 1000);
     if (!title || !action) throw new Error("BRAIN_INVALID_PLAN_STEP");
-    return { id: String(step.id || ("step_" + (index + 1))).slice(0, 80), title, action, rationale: String(step.rationale || "").trim().slice(0, 500), risk, requiresApproval: risk !== "low" || step.requiresApproval === true, status: "proposed" };
+    const requiresApproval = risk !== "low" || step.requiresApproval === true || EXTERNAL_ACTION.test(title + " " + action);
+    return { id: String(step.id || ("step_" + (index + 1))).slice(0, 80), title, action, rationale: String(step.rationale || "").trim().slice(0, 500), risk, requiresApproval, status: "proposed" };
   });
   return { objective: String(value.objective || objective).trim().slice(0, 500), summary: String(value.summary || "").trim().slice(0, 1200), assumptions: Array.isArray(value.assumptions) ? value.assumptions.map(x => String(x).slice(0, 300)).slice(0, 10) : [], steps, executionMode: "plan_only", createdAt: new Date().toISOString() };
 }
