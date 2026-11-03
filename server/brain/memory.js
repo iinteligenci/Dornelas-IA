@@ -1,7 +1,7 @@
 const MEMORY_VERSION = 1;
 const ALLOWED_TYPES = new Set(["fact", "preference", "decision", "lesson", "project", "event"]);
 function cleanText(value, max = 2000) {
-  return String(value ?? "").replace(/[\\u0000-\\u0008\\u000B\\u000C\\u000E-\\u001F]/g, "").trim().slice(0, max);
+  return String(value ?? "").replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, "").trim().slice(0, max);
 }
 function normalizeEntry(input, now) {
   if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("MEMORY_INVALID_ENTRY");
@@ -13,7 +13,7 @@ function normalizeEntry(input, now) {
   return { id: cleanText(input.id, 100) || undefined, type, content, project: cleanText(input.project, 80) || "semente", tags, importance: Math.max(1, Math.min(5, Number(input.importance) || 3)), createdAt: cleanText(input.createdAt, 40) || now().toISOString() };
 }
 function terms(value) {
-  return new Set(cleanText(value, 500).toLocaleLowerCase("pt-BR").split(/[^\\p{L}\\p{N}]+/u).filter(word => word.length > 2));
+  return new Set(cleanText(value, 500).toLocaleLowerCase("pt-BR").split(/[^\p{L}\p{N}]+/u).filter(word => word.length > 2));
 }
 export function createMemoryService({ store, path = "generated/semente/memory.json", maxEntries = 2000, now = () => new Date() } = {}) {
   if (!store?.getJson || !store?.putJson) throw new Error("MEMORY_STORE_REQUIRED");
