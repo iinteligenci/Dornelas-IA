@@ -18,6 +18,8 @@ import { SYSTEM_PROMPT, CAMPAIGN_PROMPT, CONTENT_PLAN_PROMPT, RESEARCH_PROMPT, S
 import { normalizeKnowledge, knowledgeInstructions } from "./data/knowledge.js";
 import { encryptTokenPayload, decodeStoredConnection, tokenEncryptionKey } from "./security/token-vault.js";
 import { schedulerSecretMatches, createAttemptLimiter } from "./security/scheduler-auth.js";
+import { createSementeBrain } from "./brain/index.js";
+import { createConversationService } from "./brain/conversation.js";
 
 function adminSessionToken() {
   const payload = Buffer.from(JSON.stringify({ exp: Date.now() + 8 * 60 * 60 * 1000 })).toString("base64url");
@@ -73,6 +75,9 @@ let googleConnectionNeedsReconnect = false;
 let metaLegacyNeedsMigration = false;
 let googleLegacyNeedsMigration = false;
 const schedulerAttemptLimiter = createAttemptLimiter({ limit: 10, windowMs: 15 * 60 * 1000 });
+
+const sementeBrain = createSementeBrain({ store: { getJson: githubJsonGet, putJson: githubJsonPut }, generate: runAI });
+const sementeConversation = createConversationService({ generate: runAI, memory: sementeBrain.memory });
 
 const demoContext = {
   autonomyLevel: 2,
@@ -359,6 +364,18 @@ const server = await import("node:http").then(({ createServer }) =>
       return;
     }
 
+    if (req.method === "GET" && (requestUrl.pathname === "/semente" || requestUrl.pathname === "/semente/")) {
+      try {
+        const html = await fs.readFile(new URL("./semente/index.html", import.meta.url), "utf8");
+        res.setHeader("Content-Type", "text/html; charset=utf-8");
+        res.setHeader("Cache-Control", "no-store");
+        res.end(html);
+      } catch {
+        res.statusCode = 500; res.end(JSON.stringify({ error: "semente_index_unavailable" }));
+      }
+      return;
+    }
+
     if (req.method === "GET" && (requestUrl.pathname === "/admin" || requestUrl.pathname === "/admin/")) {
       try {
         const html = await fs.readFile(new URL("./admin/index.html", import.meta.url), "utf8");
@@ -438,9 +455,68 @@ const server = await import("node:http").then(({ createServer }) =>
       schedulerAttemptLimiter.reset(clientKey);
     }
     const protectedRoute = (req.method !== "GET" && !requestUrl.pathname.startsWith("/auth/")) ||
-      (req.method === "GET" && (requestUrl.pathname.startsWith("/agent/") || requestUrl.pathname.startsWith("/admin/api/") || protectedGetPaths.has(requestUrl.pathname)));
+      (req.method === "GET" && (requestUrl.pathname.startsWith("/agent/") || requestUrl.pathname.startsWith("/admin/api/") || requestUrl.pathname.startsWith("/semente/api/") || protectedGetPaths.has(requestUrl.pathname)));
     if (protectedRoute && !schedulerRunRequest && !validAdminSession(req)) {
       res.statusCode = 401; res.end(JSON.stringify({ error: "admin_login_required", message: "Entre com a senha administrativa para usar os recursos protegidos." })); return;
+    }
+
+    if (requestUrl.pathname.startsWith("/semente/api/")) {
+      try {
+        if (req.method === "GET" && requestUrl.pathname === "/semente/api/memory") {
+          const items = await sementeBrain.memory.list({ project: "semente", limit: 50 });
+          res.setHeader("Cache-Control", "no-store");
+          res.end(JSON.stringify({ ok: true, items }));
+          return;
+        }
+        if (req.method === "POST" && requestUrl.pathname === "/semente/api/memory") {
+          const input = JSON.parse(await readBody(req) || "{}");
+          if (JSON.stringify(input).length > 5000) throw new Error("MEMORY_INPUT_TOO_LARGE");
+          const result = await sementeBrain.memory.remember({
+            type: input.type,
+            content: input.content,
+            project: input.project || "semente",
+            tags: input.tags,
+            importance: input.importance
+          });
+          res.statusCode = result.duplicate ? 200 : 201;
+          res.end(JSON.stringify({ ok: true, ...result }));
+          return;
+        }
+        if (req.method === "POST" && requestUrl.pathname === "/semente/api/chat") {
+          const input = JSON.parse(await readBody(req) || "{}");
+          if (JSON.stringify(input).length > 35000) throw new Error("SEMENTE_INPUT_TOO_LARGE");
+          const result = await sementeConversation.respond({
+            message: input.message,
+            history: input.history,
+            project: input.project || "semente",
+            context: input.context || {}
+          });
+          res.setHeader("Cache-Control", "no-store");
+          res.end(JSON.stringify({ ok: true, ...result }));
+          return;
+        }
+        if (req.method === "POST" && requestUrl.pathname === "/semente/api/plan") {
+          const input = JSON.parse(await readBody(req) || "{}");
+          if (JSON.stringify(input).length > 20000) throw new Error("SEMENTE_INPUT_TOO_LARGE");
+          const result = await sementeBrain.plan({
+            objective: input.objective,
+            context: input.context || {},
+            memoryQuery: input.memoryQuery || input.objective,
+            project: input.project || "semente"
+          });
+          res.setHeader("Cache-Control", "no-store");
+          res.end(JSON.stringify({ ok: true, ...result }));
+          return;
+        }
+        res.statusCode = 404;
+        res.end(JSON.stringify({ error: "semente_endpoint_not_found" }));
+        return;
+      } catch (error) {
+        const status = ["SEMENTE_MESSAGE_REQUIRED","SEMENTE_OBJECTIVE_REQUIRED","MEMORY_INVALID_ENTRY","MEMORY_INVALID_TYPE","MEMORY_EMPTY_CONTENT","BRAIN_OBJECTIVE_REQUIRED"].includes(error.message) ? 400 : 502;
+        res.statusCode = status;
+        res.end(JSON.stringify({ error: "semente_request_failed", message: error.message }));
+        return;
+      }
     }
 
     if (requestUrl.pathname.startsWith("/admin/api/approvals")) {
