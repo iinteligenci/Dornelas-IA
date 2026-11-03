@@ -122,6 +122,23 @@ test("GET / returns service status and useful endpoints", async () => {
   });
 });
 
+test("Semente test index is served and its APIs require an admin session", async () => {
+  const page = await request("/semente");
+  assert.equal(page.status, 200);
+  assert.match(page.headers.get("content-type") || "", /text\/html/i);
+  assert.match(page.text, /Inteligência em continuidade/);
+  assert.match(page.text, /Conversa de trabalho/);
+  for (const [method, path, body] of [
+    ["GET", "/semente/api/memory"],
+    ["POST", "/semente/api/chat", { message: "Olá" }],
+    ["POST", "/semente/api/plan", { objective: "Testar" }]
+  ]) {
+    const response = await request(path, { method, body });
+    assert.equal(response.status, 401, method + " " + path + " must require authentication");
+    assert.equal(response.json?.error, "admin_login_required");
+  }
+});
+
 test("admin routes reject requests without a session", async () => {
   for (const [method, path, body] of [
     ["POST", "/agent/research", { focus: "test" }],
@@ -301,4 +318,16 @@ test("scheduler route rejects invalid secrets and eventually rate-limits repeate
   const denied = await request("/agent/scheduler/run", { method: "POST", headers: { "x-scheduler-secret": "wrong-secret-test" }, body: {} });
   assert.equal(denied.status, 401);
   assert.equal(denied.json?.error, "invalid_scheduler_secret");
+});
+
+test("authenticated Semente APIs fail closed when private storage or AI provider is not configured", async () => {
+  assert.ok(adminCookie, "login test must establish the test session first");
+  const memory = await request("/semente/api/memory", { cookie: adminCookie });
+  assert.equal(memory.status, 502);
+  assert.equal(memory.json?.error, "semente_request_failed");
+  assert.match(memory.json?.message || "", /DATA_STORE_TOKEN|DATA_STORE_REPO/i);
+  const chat = await request("/semente/api/chat", { method: "POST", cookie: adminCookie, body: { message: "Olá Semente" } });
+  assert.equal(chat.status, 502);
+  assert.equal(chat.json?.error, "semente_request_failed");
+  assert.match(chat.json?.message || "", /GEMINI_API_KEY|AI_API_KEY|AI_API_BASE_URL/i);
 });
