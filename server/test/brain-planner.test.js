@@ -21,3 +21,10 @@ test("planner rejects malformed model output", async () => {
   const planner = createPlanner({ generate: async () => ({ text: "não é JSON" }) });
   await assert.rejects(planner.plan({ objective: "Teste" }));
 });
+
+test("planner forces approval for external actions even when model marks them low risk", async () => {
+  const planner = createPlanner({ generate: async () => ({ text: '{"steps":[{"title":"Publicar campanha","action":"Publicar no Instagram","risk":"low"}]}' }) });
+  const plan = await planner.plan({ objective: "Divulgar campanha" });
+  assert.equal(plan.steps[0].risk, "low");
+  assert.equal(plan.steps[0].requiresApproval, true);
+});
