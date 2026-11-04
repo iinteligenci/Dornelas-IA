@@ -25,7 +25,8 @@ function normalizeEvaluation(value, input) {
     objective: input.objective,
     outcome,
     summary: String(value.summary || "").trim().slice(0, 1200),
-    evidenceReviewed: boundedStrings(value.evidenceReviewed, 8, 500),
+    evidenceProvided: boundedStrings(input.evidence, 12, 1000),
+    interpretations: boundedStrings(value.interpretations, 8, 500),
     gaps: boundedStrings(value.gaps, 8, 500),
     lessonsCandidates,
     nextSteps: boundedStrings(value.nextSteps, 6, 700),
@@ -52,11 +53,11 @@ export function createEvaluator({ generate } = {}) {
         rules: [
           "Compare objective, expected result, actual result and evidence without inventing facts.",
           "If evidence is absent or insufficient, outcome must be unclear or confidence must remain low.",
-          "Separate evidence actually supplied from interpretation and gaps.",
+          "Do not repeat or invent evidence. Return interpretations separately from the evidence supplied by the user.",
           "Suggest at most four durable lessons; do not save them. They require explicit human confirmation.",
           "Do not turn the evaluation into a claim of success merely because the task was attempted.",
           "Do not execute actions or change external systems.",
-          "Return only JSON with outcome, summary, evidenceReviewed, gaps, lessonsCandidates, nextSteps and confidence.",
+          "Return only JSON with outcome, summary, interpretations, gaps, lessonsCandidates, nextSteps and confidence. The application will attach the exact evidence supplied by the user separately.",
           "outcome must be achieved, partially_achieved, not_achieved or unclear."
         ]
       };
@@ -64,7 +65,7 @@ export function createEvaluator({ generate } = {}) {
         instructions: "Você é o avaliador de resultados da Semente. Avalie com rigor, humildade epistêmica e rastreabilidade. Não confunda atividade com resultado.",
         input: JSON.stringify(payload).slice(0, 18000)
       });
-      return normalizeEvaluation(parseJson(result?.text ?? result), { objective: goal });
+      return normalizeEvaluation(parseJson(result?.text ?? result), { objective: goal, evidence: suppliedEvidence });
     }
   };
 }
