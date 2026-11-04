@@ -130,7 +130,7 @@ test("Semente test index is served and its APIs require an admin session", async
   assert.match(page.text, /Conversa livre/);
   assert.match(page.text, /Contexto recuperado/);
   assert.match(page.text, /Avaliar resultado/);
-  assert.match(page.text, /vida, curiosidade, relações/);
+  assert.match(page.text, /[Vv]ida, curiosidade, relações/);
   for (const [method, path, body] of [
     ["GET", "/semente/api/memory"],
     ["POST", "/semente/api/chat", { message: "Olá" }],
