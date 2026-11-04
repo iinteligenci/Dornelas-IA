@@ -331,6 +331,9 @@ test("scheduler route rejects invalid secrets and eventually rate-limits repeate
 test("authenticated Semente APIs fail closed when private storage or AI provider is not configured", async () => {
   assert.ok(adminCookie, "login test must establish the test session first");
   const memory = await request("/semente/api/memory", { cookie: adminCookie });
+  const crossOrigin = await request("/semente/api/memory", { cookie: adminCookie, headers: { Origin: "https://iinteligenci.github.io" } });
+  assert.equal(crossOrigin.status, 403);
+  assert.equal(crossOrigin.json?.error, "semente_same_origin_required");
   assert.equal(memory.status, 502);
   assert.equal(memory.json?.error, "semente_request_failed");
   assert.match(memory.json?.message || "", /DATA_STORE_TOKEN|DATA_STORE_REPO/i);
