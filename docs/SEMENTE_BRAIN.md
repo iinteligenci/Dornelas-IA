@@ -43,8 +43,8 @@ Memory uses the existing JSON store interface and writes to `generated/semente/m
 - Retrieval is lexical and transparent, not vector/embedding search.
 - The current conversation history is in-memory in the browser tab and is not persisted as a transcript.
 - There is no continuous sensor perception, autonomous task queue, tool registry or outcome-learning loop.
-- The GitHub Pages gateway at `/Dornelas-IA/semente/` is static; the Node.js backend must be deployed separately and configured with the existing `ADMIN_PASSWORD`, `ADMIN_SESSION_SECRET`, AI provider settings, and private data-store settings if persistent memory is required.
-- The Render URL referenced by the gateway must be verified in a real environment. This PR does not deploy or provision services.
+- The GitHub Pages gateway at `/Dornelas-IA/semente/` is static. The current Pages workflow publishes only pushes to `main`, so this PR branch is not publicly served; the gateway appears after the PR is merged and the Pages workflow completes. The Node.js backend must be deployed separately and configured with the existing `ADMIN_PASSWORD`, `ADMIN_SESSION_SECRET`, AI provider settings, and private data-store settings if persistent memory is required.
+- The Render URL referenced by the gateway (`https://dornelas-ia.onrender.com`) could not be verified from this run. This PR does not deploy or provision services.
 
 ## Verification
 
