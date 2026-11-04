@@ -131,7 +131,7 @@ test("Semente test index is served and its APIs require an admin session", async
   assert.match(page.text, /Contexto recuperado/);
   assert.match(page.text, /Avaliar resultado/);
   assert.match(page.text, /[Vv]ida, curiosidade, relações/);
-  const inlineScripts = [...page.text.matchAll(/<script>([\\s\\S]*?)<\\/script>/gi)];
+  const inlineScripts = [...page.text.matchAll(/<script>([\s\S]*?)<\/script>/gi)];
   assert.equal(inlineScripts.length, 1, "test index should expose one self-contained controller script");
   assert.doesNotThrow(() => new Function(inlineScripts[0][1]), "test index controller must be valid JavaScript");
   for (const [method, path, body] of [
