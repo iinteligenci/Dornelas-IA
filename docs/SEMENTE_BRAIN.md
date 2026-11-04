@@ -21,7 +21,7 @@ The functional self-model is explicit in `server/brain/identity.js`: purpose, do
 - The integrated test index is served by the backend at `/semente`.
 - Login uses the existing admin password and signed HttpOnly session cookie.
 - The index provides free conversation, planning, outcome evaluation, relevant-memory inspection, verifiable response basis, explicit memory saving and memory deletion.
-- All data APIs live under authenticated `/semente/api/*` routes. No public API or client-side secret is introduced.
+- All data APIs live under authenticated `/semente/api/*` routes and reject cross-origin Semente API calls; the integrated UI is served on the same origin as the backend. No public API or client-side secret is introduced.
 - `public/semente/index.html` is a GitHub Pages gateway only. Vite copies `public/` into `dist/`, so the page is actually included in the Pages artifact. It checks the backend health endpoint and opens `/semente` on the backend's own origin. It deliberately does not simulate chat or move the admin cookie across domains; same-origin session handling is more reliable and avoids exposing credentials.
 
 ## Persistence and provider compatibility
