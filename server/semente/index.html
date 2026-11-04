@@ -169,12 +169,13 @@ function renderEvaluation(result){
   const names={achieved:"Alcançado",partially_achieved:"Parcialmente alcançado",not_achieved:"Não alcançado",unclear:"Inconclusivo"};
   const header=element("div","result-head");header.append(element("span","tag",names[result.outcome]||"Inconclusivo"),element("span","tag","Confiança: "+Math.round((result.confidence||0)*100)+"%"));
   $("evaluationOutput").append(header,element("p","",result.summary||"Avaliação concluída."));
-  const groups=[["Evidências revisadas",result.evidenceReviewed],["Lacunas",result.gaps],["Próximos passos",result.nextSteps]];
+  const groups=[["Evidências fornecidas",result.evidenceProvided],["Interpretações",result.interpretations],["Lacunas",result.gaps],["Próximos passos",result.nextSteps]];
   groups.forEach(([title,items])=>{if(!items||!items.length)return;const card=element("div","card");card.append(element("strong","",title));items.forEach(x=>card.append(element("p","muted","• "+x)));$("evaluationOutput").append(card);});
   if(result.lessonsCandidates&&result.lessonsCandidates.length)renderSuggestions(result.lessonsCandidates,$("evaluationOutput"));
   renderContext(result.memoryContext,result.memoryStatus,result.memoryError);
   renderBasis([
-    ...(result.evidenceReviewed||[]).map(content=>({kind:"fact",content})),
+    ...(result.evidenceProvided||[]).map(content=>({kind:"fact",content})),
+    ...(result.interpretations||[]).map(content=>({kind:"inference",content})),
     ...(result.gaps||[]).map(content=>({kind:"unknown",content})),
     ...(result.nextSteps||[]).map(content=>({kind:"criterion",content})),
     {kind:"criterion",content:"Avaliação baseada somente no objetivo, resultado e evidências fornecidos."}
