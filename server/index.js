@@ -357,6 +357,15 @@ const server = await import("node:http").then(({ createServer }) =>
     const allowedOrigin = "https://iinteligenci.github.io";
     const allowedOrigins = new Set([allowedOrigin, "https://dornelas-ia.onrender.com"]);
     if (origin && !allowedOrigins.has(origin)) { res.statusCode = 403; res.end(JSON.stringify({ error: "origin_not_allowed" })); return; }
+    if (requestUrl.pathname.startsWith("/semente/api/") && origin) {
+      const forwardedProto = String(req.headers["x-forwarded-proto"] || (req.socket?.encrypted ? "https" : "http")).split(",")[0].trim();
+      const sameOrigin = forwardedProto + "://" + String(req.headers.host || "");
+      if (origin !== sameOrigin) {
+        res.statusCode = 403;
+        res.end(JSON.stringify({ error: "semente_same_origin_required", message: "A interface integrada e as APIs da Semente devem compartilhar o mesmo domínio para proteger a sessão administrativa." }));
+        return;
+      }
+    }
 
     if (req.method === "GET" && requestUrl.pathname === "/") {
       res.setHeader("Cache-Control", "no-store");
