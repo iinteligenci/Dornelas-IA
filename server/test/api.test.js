@@ -126,7 +126,7 @@ test("Semente test index is served and its APIs require an admin session", async
   const page = await request("/semente");
   assert.equal(page.status, 200);
   assert.match(page.headers.get("content-type") || "", /text\/html/i);
-  assert.match(page.text, /Inteligência em continuidade/);
+  assert.match(page.text, /Inteligência de continuidade/);
   assert.match(page.text, /Conversa livre/);
   assert.match(page.text, /Contexto recuperado/);
   assert.match(page.text, /Avaliar resultado/);
