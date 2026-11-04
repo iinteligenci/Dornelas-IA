@@ -135,11 +135,11 @@ async function saveCandidate(item,button){
   try{await api("/semente/api/memory",{method:"POST",body:JSON.stringify(Object.assign({},item,{project:"semente"}))});button.textContent="Guardado";await loadMemory();}
   catch(error){button.disabled=false;button.textContent="Falhou";$("memoryStatus").textContent=error.message;}
 }
-function renderSuggestions(items){
+function renderSuggestions(items,target=$("log")){
   if(!items||!items.length)return;
   const wrap=element("div","card");wrap.append(element("strong","","Possíveis memórias — você escolhe"));
   items.forEach(item=>{const row=element("div","memory-item");row.append(element("p","",item.content));const button=element("button","secondary","Guardar");button.addEventListener("click",()=>saveCandidate(item,button));row.append(button);wrap.append(row);});
-  $("log").append(wrap);$("log").scrollTop=$("log").scrollHeight;
+  target.append(wrap);if(target===$("log"))$("log").scrollTop=$("log").scrollHeight;
 }
 function renderPlan(result){
   $("planOutput").replaceChildren();
@@ -158,7 +158,11 @@ function renderPlan(result){
     $("planOutput").append(card);
   });
   renderContext(result.memoryContext,result.memoryStatus,result.memoryError);
-  renderBasis([{kind:"criterion",content:"O plano é uma proposta. Nenhuma etapa foi executada."}]);
+  renderBasis([
+    ...(result.assumptions||[]).map(content=>({kind:"hypothesis",content})),
+    ...(result.successCriteria||[]).map(content=>({kind:"criterion",content})),
+    {kind:"criterion",content:"O plano é uma proposta. Nenhuma etapa foi executada."}
+  ]);
 }
 function renderEvaluation(result){
   $("evaluationOutput").replaceChildren();
@@ -167,9 +171,14 @@ function renderEvaluation(result){
   $("evaluationOutput").append(header,element("p","",result.summary||"Avaliação concluída."));
   const groups=[["Evidências revisadas",result.evidenceReviewed],["Lacunas",result.gaps],["Próximos passos",result.nextSteps]];
   groups.forEach(([title,items])=>{if(!items||!items.length)return;const card=element("div","card");card.append(element("strong","",title));items.forEach(x=>card.append(element("p","muted","• "+x)));$("evaluationOutput").append(card);});
-  if(result.lessonsCandidates&&result.lessonsCandidates.length)renderSuggestions(result.lessonsCandidates);
+  if(result.lessonsCandidates&&result.lessonsCandidates.length)renderSuggestions(result.lessonsCandidates,$("evaluationOutput"));
   renderContext(result.memoryContext,result.memoryStatus,result.memoryError);
-  renderBasis([{kind:"criterion",content:"Avaliação baseada somente no objetivo, resultado e evidências fornecidos."}]);
+  renderBasis([
+    ...(result.evidenceReviewed||[]).map(content=>({kind:"fact",content})),
+    ...(result.gaps||[]).map(content=>({kind:"unknown",content})),
+    ...(result.nextSteps||[]).map(content=>({kind:"criterion",content})),
+    {kind:"criterion",content:"Avaliação baseada somente no objetivo, resultado e evidências fornecidos."}
+  ]);
 }
 async function loadMemory(){
   $("memoryList").replaceChildren(element("p","empty","Carregando memórias…"));
