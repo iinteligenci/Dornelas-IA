@@ -34,3 +34,14 @@ test("memory enforces retention limit", async () => {
   await memory.remember({ type: "fact", content: "três" });
   assert.deepEqual((await memory.list()).map(x => x.content), ["três", "dois"]);
 });
+
+test("memory supports explicit deletion and exact duplicate-content protection", async () => {
+  const memory = createMemoryService({ store: fakeStore() });
+  const first = await memory.remember({ type: "decision", content: "Manter conversas sem gravação automática" });
+  const duplicate = await memory.remember({ type: "decision", content: "Manter conversas sem gravação automática" });
+  assert.equal(duplicate.duplicate, true);
+  assert.equal(duplicate.entry.id, first.entry.id);
+  assert.deepEqual(await memory.forget(first.entry.id), { deleted: true, id: first.entry.id });
+  assert.equal((await memory.list()).length, 0);
+  assert.deepEqual(await memory.forget(first.entry.id), { deleted: false });
+});
