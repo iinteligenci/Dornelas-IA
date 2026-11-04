@@ -122,6 +122,31 @@ test("GET / returns service status and useful endpoints", async () => {
   });
 });
 
+test("Semente test index is served and its APIs require an admin session", async () => {
+  const page = await request("/semente");
+  assert.equal(page.status, 200);
+  assert.match(page.headers.get("content-type") || "", /text\/html/i);
+  assert.match(page.text, /Inteligência de continuidade/);
+  assert.match(page.text, /Conversa livre/);
+  assert.match(page.text, /Contexto recuperado/);
+  assert.match(page.text, /Avaliar resultado/);
+  assert.match(page.text, /[Vv]ida, curiosidade, relações/);
+  const inlineScripts = [...page.text.matchAll(/<script>([\s\S]*?)<\/script>/gi)];
+  assert.equal(inlineScripts.length, 1, "test index should expose one self-contained controller script");
+  assert.doesNotThrow(() => new Function(inlineScripts[0][1]), "test index controller must be valid JavaScript");
+  for (const [method, path, body] of [
+    ["GET", "/semente/api/memory"],
+    ["POST", "/semente/api/chat", { message: "Olá" }],
+    ["POST", "/semente/api/plan", { objective: "Testar" }],
+    ["POST", "/semente/api/evaluate", { objective: "Testar", actualResult: "Ainda não iniciado" }],
+    ["DELETE", "/semente/api/memory/example-id"]
+  ]) {
+    const response = await request(path, { method, body });
+    assert.equal(response.status, 401, method + " " + path + " must require authentication");
+    assert.equal(response.json?.error, "admin_login_required");
+  }
+});
+
 test("admin routes reject requests without a session", async () => {
   for (const [method, path, body] of [
     ["POST", "/agent/research", { focus: "test" }],
@@ -301,4 +326,29 @@ test("scheduler route rejects invalid secrets and eventually rate-limits repeate
   const denied = await request("/agent/scheduler/run", { method: "POST", headers: { "x-scheduler-secret": "wrong-secret-test" }, body: {} });
   assert.equal(denied.status, 401);
   assert.equal(denied.json?.error, "invalid_scheduler_secret");
+});
+
+test("authenticated Semente APIs fail closed when private storage or AI provider is not configured", async () => {
+  assert.ok(adminCookie, "login test must establish the test session first");
+  const memory = await request("/semente/api/memory", { cookie: adminCookie });
+  const crossOrigin = await request("/semente/api/memory", { cookie: adminCookie, headers: { Origin: "https://iinteligenci.github.io" } });
+  assert.equal(crossOrigin.status, 403);
+  assert.equal(crossOrigin.json?.error, "semente_same_origin_required");
+  assert.equal(memory.status, 502);
+  assert.equal(memory.json?.error, "semente_request_failed");
+  assert.match(memory.json?.message || "", /DATA_STORE_TOKEN|DATA_STORE_REPO/i);
+  const chat = await request("/semente/api/chat", { method: "POST", cookie: adminCookie, body: { message: "Olá Semente" } });
+  assert.equal(chat.status, 502);
+  assert.equal(chat.json?.error, "semente_request_failed");
+  assert.match(chat.json?.message || "", /GEMINI_API_KEY|AI_API_KEY|AI_API_BASE_URL/i);
+
+  const plan = await request("/semente/api/plan", { method: "POST", cookie: adminCookie, body: { objective: "Planejar um teste" } });
+  assert.equal(plan.status, 502);
+  assert.equal(plan.json?.error, "semente_request_failed");
+  assert.match(plan.json?.message || "", /GEMINI_API_KEY|AI_API_KEY|AI_API_BASE_URL/i, "planning should proceed past an unavailable memory store and fail only at the missing model");
+
+  const evaluation = await request("/semente/api/evaluate", { method: "POST", cookie: adminCookie, body: { objective: "Validar", actualResult: "Sem execução ainda" } });
+  assert.equal(evaluation.status, 502);
+  assert.equal(evaluation.json?.error, "semente_request_failed");
+  assert.match(evaluation.json?.message || "", /GEMINI_API_KEY|AI_API_KEY|AI_API_BASE_URL/i);
 });
