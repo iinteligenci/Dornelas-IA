@@ -1,55 +1,248 @@
 <!doctype html>
 <html lang="pt-BR">
 <head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#101812">
-<title>Semente — ambiente de teste</title>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#07120f">
+<title>Semente — inteligência de continuidade</title>
 <style>
-:root{color-scheme:dark;--bg:#0d120f;--panel:#151d18;--line:#2b3a30;--text:#edf4ed;--muted:#a5b4a8;--accent:#a8d5a2}
-*{box-sizing:border-box}body{margin:0;background:radial-gradient(ellipse at 20% 0%,#1b3024,transparent 42%),var(--bg);color:var(--text);font:15px/1.5 system-ui,sans-serif}button,input,textarea,select{font:inherit}button{cursor:pointer;border:1px solid var(--line);border-radius:11px;padding:10px 14px;background:var(--accent);color:#142016;font-weight:700}button:disabled{opacity:.5}.secondary{background:#1b2720;color:var(--text)}.shell{max-width:1200px;margin:auto;padding:22px}.panel{background:var(--panel);border:1px solid var(--line);border-radius:17px;padding:17px}.hidden{display:none!important}.login{max-width:420px;margin:12vh auto}.login input{width:100%;padding:12px;margin:10px 0;background:#0e1510;color:var(--text);border:1px solid var(--line);border-radius:10px}.top{display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;gap:12px}.brand{display:flex;align-items:center;gap:12px}.mark{width:42px;height:42px;border-radius:14px;background:linear-gradient(145deg,#d9efc9,#6f9b72);display:grid;place-items:center;color:#142016;font-size:22px;font-weight:900}.eyebrow{font-size:10px;color:var(--accent);letter-spacing:.16em;text-transform:uppercase;font-weight:800}.brand h1{margin:0;font-size:25px}.muted,.status{color:var(--muted);font-size:12px}.layout{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(280px,.8fr);gap:16px}.chat{display:flex;flex-direction:column;min-height:76vh}.log{flex:1;min-height:360px;max-height:62vh;overflow:auto;padding:16px 2px;display:flex;flex-direction:column;gap:12px}.msg{max-width:88%;padding:12px 14px;border-radius:14px;white-space:pre-wrap;overflow-wrap:anywhere}.user{align-self:flex-end;background:#26392b;border:1px solid #3d5842}.assistant{align-self:flex-start;background:#1b2720;border:1px solid var(--line)}.who{display:block;color:var(--accent);font-size:10px;font-weight:800;letter-spacing:.08em;margin-bottom:5px}.composer{display:flex;gap:9px;border-top:1px solid var(--line);padding-top:13px}.composer textarea{flex:1;min-height:54px;resize:vertical;background:#0e1510;color:var(--text);border:1px solid var(--line);border-radius:10px;padding:12px}.side{display:flex;flex-direction:column;gap:16px}.field{display:grid;gap:5px;margin:10px 0}.field label{font-size:12px;color:var(--muted)}.field input,.field select{width:100%;background:#0e1510;color:var(--text);border:1px solid var(--line);border-radius:9px;padding:10px}.card{border:1px solid var(--line);border-radius:11px;padding:10px;margin-top:8px}.tag{display:inline-block;border:1px solid #405444;color:#d9efc9;border-radius:99px;padding:2px 8px;font-size:10px;margin-right:6px}.notice{padding:10px;border-left:3px solid var(--accent);background:#1a271d;color:var(--muted);font-size:12px}.error{color:#e5a09a;font-size:12px;min-height:18px}.row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}@media(max-width:820px){.shell{padding:12px}.layout{grid-template-columns:1fr}.chat{min-height:65vh}.log{max-height:55vh}.top{align-items:flex-start}}
+:root{color-scheme:dark;--bg:#07110d;--surface:#101d17;--surface2:#14251c;--line:#2b4033;--text:#edf5ee;--muted:#9aafa0;--accent:#b9e2aa;--accent2:#75b98a;--danger:#e3a09a;--shadow:0 18px 50px #0005}
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(ellipse at 15% -5%,#1d3828 0,transparent 40%),radial-gradient(ellipse at 90% 20%,#10271e 0,transparent 35%),var(--bg);color:var(--text);font:14px/1.55 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}button,input,textarea,select{font:inherit}button{cursor:pointer;border:1px solid #66896b;border-radius:10px;background:var(--accent);color:#132018;font-weight:750;padding:10px 14px}button:hover{filter:brightness(1.06)}button:disabled{opacity:.5;cursor:wait}.secondary{background:#1b2b21;border-color:var(--line);color:var(--text)}.danger{background:#321f20;border-color:#704342;color:#ffd4cf}.shell{max-width:1320px;margin:auto;padding:22px}.hidden{display:none!important}.panel{background:linear-gradient(145deg,#13221add,#0d1913ee);border:1px solid var(--line);border-radius:17px;padding:17px;box-shadow:var(--shadow)}.login{max-width:430px;margin:12vh auto}.login input{width:100%;padding:13px;margin:12px 0;background:#08130d;color:var(--text);border:1px solid var(--line);border-radius:10px}.brand{display:flex;align-items:center;gap:13px}.mark{width:46px;height:46px;border-radius:15px;display:grid;place-items:center;background:radial-gradient(circle at 30% 25%,#e9ffdc,#9bcf91 50%,#4d855b);color:#102015;font-size:24px;font-weight:900;box-shadow:0 0 30px #a8db9c33}.brand h1{margin:0;font-size:25px;letter-spacing:.12em;font-weight:650}.eyebrow{font-size:10px;color:var(--accent);letter-spacing:.18em;text-transform:uppercase;font-weight:800}.muted,.status{color:var(--muted);font-size:12px}.top{display:flex;justify-content:space-between;align-items:center;gap:14px;margin-bottom:17px}.top-right{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.dot{width:8px;height:8px;border-radius:50%;background:#7ecb91;display:inline-block;margin-right:6px}.nav{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:15px;padding:7px;border:1px solid var(--line);border-radius:13px;background:#0c1711}.nav button{background:transparent;border:1px solid transparent;color:var(--muted);font-weight:600}.nav button.active{background:#1c3424;border-color:#3d6044;color:var(--accent)}.layout{display:grid;grid-template-columns:minmax(0,1.45fr) minmax(290px,.75fr);gap:15px}.view{display:none;min-width:0}.view.active{display:block}.chat{min-height:68vh;display:flex;flex-direction:column}.chat-head{display:flex;justify-content:space-between;align-items:center;gap:10px}.chat-log{flex:1;min-height:350px;max-height:56vh;overflow:auto;padding:18px 3px;display:flex;flex-direction:column;gap:12px}.msg{max-width:90%;padding:12px 14px;border-radius:14px;white-space:pre-wrap;overflow-wrap:anywhere}.msg.user{align-self:flex-end;background:#233c2a;border:1px solid #3d6245}.msg.assistant{align-self:flex-start;background:#17261d;border:1px solid var(--line)}.who{display:block;color:var(--accent);font-size:10px;font-weight:850;letter-spacing:.12em;margin-bottom:5px}.composer{display:flex;gap:9px;border-top:1px solid var(--line);padding-top:13px}.composer textarea,.field textarea{resize:vertical;min-height:54px}.composer textarea,.field input,.field textarea,.field select{width:100%;background:#08130d;color:var(--text);border:1px solid var(--line);border-radius:10px;padding:12px}.composer textarea{flex:1}.field{display:grid;gap:6px;margin:12px 0}.field label{font-size:12px;color:var(--muted)}.side{display:flex;flex-direction:column;gap:14px}.section-title{margin:0 0 11px;font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:#c4d8c6}.card{border:1px solid var(--line);background:#102017;border-radius:11px;padding:11px;margin-top:9px}.card p{margin:6px 0 0}.tag{display:inline-block;border:1px solid #46644a;color:#d8f1ce;border-radius:99px;padding:2px 8px;font-size:10px;margin-right:5px}.basis{border-left:2px solid var(--accent2);padding:8px 10px;margin:7px 0;background:#12251a;border-radius:0 8px 8px 0}.basis small{display:block;color:var(--accent);font-size:9px;text-transform:uppercase;letter-spacing:.12em}.memory-item{display:flex;justify-content:space-between;align-items:flex-start;gap:10px}.memory-item p{flex:1;min-width:0;overflow-wrap:anywhere}.notice{padding:11px 12px;border-left:3px solid var(--accent2);background:#14261b;color:#b6c9ba;border-radius:0 9px 9px 0;font-size:12px}.error{color:var(--danger);font-size:12px;min-height:18px}.empty{color:var(--muted);font-size:12px;padding:10px 0}.result-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.step{border:1px solid var(--line);border-radius:12px;padding:12px;margin:9px 0;background:#0e1b14}.step h3{margin:0 0 5px;font-size:14px}.step p{margin:5px 0;color:#b4c6b7}.split{display:grid;grid-template-columns:1fr 1fr;gap:10px}.small{font-size:10px;color:var(--muted)}.footer{text-align:center;color:#617968;font-size:10px;letter-spacing:.12em;padding:22px 0 4px}
+@media(max-width:900px){.layout{grid-template-columns:1fr}.side{display:grid;grid-template-columns:1fr 1fr}.chat{min-height:60vh}}@media(max-width:600px){.shell{padding:11px}.top{align-items:flex-start}.top-right{justify-content:flex-end}.side{display:flex}.chat-log{min-height:300px;max-height:50vh}.composer{flex-direction:column}.composer button{align-self:flex-end}.split{grid-template-columns:1fr}.nav{overflow:auto;flex-wrap:nowrap}.nav button{white-space:nowrap}}
 </style>
 </head>
 <body>
-<div id="login" class="shell login panel">
-  <div class="brand"><div class="mark">S</div><div><div class="eyebrow">Ambiente privado de teste</div><h1>Semente</h1></div></div>
-  <p class="muted">Entre com a senha administrativa já configurada no servidor.</p>
-  <form id="loginForm"><input id="password" type="password" autocomplete="current-password" placeholder="Senha administrativa" required><button id="loginButton">Entrar</button></form>
+<section id="login" class="shell login panel">
+  <div class="brand"><div class="mark">S</div><div><div class="eyebrow">Núcleo de continuidade</div><h1>SEMENTE</h1></div></div>
+  <p class="muted">Ambiente privado de teste. A autenticação usa a sessão administrativa existente no servidor.</p>
+  <form id="loginForm"><input id="password" type="password" autocomplete="current-password" placeholder="Senha administrativa" required><button id="loginButton">Entrar na Semente</button></form>
   <p id="loginError" class="error" role="status"></p>
-</div>
+</section>
 <main id="app" class="shell hidden">
-<header class="top"><div class="brand"><div class="mark">S</div><div><div class="eyebrow">Inteligência em continuidade</div><h1>Semente</h1><div class="muted">Entender objetivos. Manter contexto. Produzir trabalho verificável.</div></div></div><div class="row"><span class="tag">TESTE PRIVADO</span><button id="logout" class="secondary">Sair</button></div></header>
+<header class="top">
+  <div class="brand"><div class="mark">S</div><div><div class="eyebrow">Inteligência de continuidade</div><h1>SEMENTE</h1><div class="muted">Vida, curiosidade, relações, aprendizado, criatividade e projetos. Trabalho é só uma dimensão.</div></div></div>
+  <div class="top-right"><span id="connection" class="status"><span class="dot"></span>Verificando núcleo…</span><button id="logout" class="secondary">Sair</button></div>
+</header>
+<nav class="nav" aria-label="Áreas da Semente">
+  <button class="active" data-view="conversation">◉ Conversar</button>
+  <button data-view="planning">⌁ Planejar</button>
+  <button data-view="evaluation">◎ Avaliar resultado</button>
+  <button data-view="memories">▤ Memórias</button>
+</nav>
 <div class="layout">
-<section class="panel chat">
-<div class="row" style="justify-content:space-between"><strong>Conversa de trabalho</strong><span id="connection" class="status">Verificando sessão…</span><button id="clear" class="secondary">Nova conversa</button></div>
-<div id="log" class="log" aria-live="polite"><div class="msg assistant"><span class="who">SEMENTE</span>Eu começo pelo que você quer mudar, pelo que já sabemos e pelo que ainda precisa ser provado. Não vou fingir que executei algo. Vamos trabalhar.</div></div>
-<form id="composer" class="composer"><textarea id="message" placeholder="Descreva um objetivo, problema ou decisão. Enter envia; Shift + Enter quebra linha." required></textarea><button id="send">Enviar</button></form><p id="chatError" class="error" role="status"></p>
+<section id="view-conversation" class="view active">
+  <div class="panel chat">
+    <div class="chat-head"><div><strong>Conversa livre</strong><div class="muted">Não precisa transformar tudo em tarefa. Pode simplesmente conversar.</div></div><button id="newConversation" class="secondary">Nova conversa</button></div>
+    <div id="log" class="chat-log" aria-live="polite"><div class="msg assistant"><span class="who">SEMENTE</span>Estou aqui. Posso acompanhar uma ideia, uma dúvida, algo que aconteceu, uma decisão ou apenas uma conversa. Vou usar o contexto disponível sem fingir saber o que não sei.</div></div>
+    <form id="composer" class="composer"><textarea id="message" placeholder="O que está passando pela sua cabeça?" required></textarea><button id="send">Enviar ↗</button></form>
+    <p id="chatError" class="error" role="status"></p>
+  </div>
+</section>
+<section id="view-planning" class="view">
+  <div class="panel">
+    <h2>Planejar sem confundir plano com execução</h2>
+    <p class="muted">Defina o que deseja alcançar. A Semente organiza etapas, riscos, dependências e critérios observáveis. Nada será executado por esta tela.</p>
+    <form id="planForm">
+      <div class="field"><label for="objective">Objetivo</label><input id="objective" placeholder="O que você quer alcançar?" required></div>
+      <div class="field"><label for="planContext">Contexto adicional (opcional)</label><textarea id="planContext" placeholder="Restrições, recursos, prazo ou situação atual…"></textarea></div>
+      <button id="planButton">Construir plano</button>
+    </form>
+    <p id="planStatus" class="status" role="status"></p><div id="planOutput"></div>
+  </div>
+</section>
+<section id="view-evaluation" class="view">
+  <div class="panel">
+    <h2>Avaliar o que realmente aconteceu</h2>
+    <p class="muted">Compare intenção, resultado e evidências. A Semente não presume sucesso só porque houve esforço.</p>
+    <form id="evaluationForm">
+      <div class="field"><label for="evalObjective">Objetivo original</label><input id="evalObjective" placeholder="O que deveria acontecer?" required></div>
+      <div class="field"><label for="expectedResult">Resultado esperado (opcional)</label><textarea id="expectedResult" placeholder="Qual era o critério de sucesso?"></textarea></div>
+      <div class="field"><label for="actualResult">Resultado observado</label><textarea id="actualResult" placeholder="O que aconteceu de fato?" required></textarea></div>
+      <div class="field"><label for="evidence">Evidências disponíveis (uma por linha)</label><textarea id="evidence" placeholder="Números, testes, mensagens, observações ou links descritos…"></textarea></div>
+      <button id="evaluateButton">Avaliar resultado</button>
+    </form>
+    <p id="evaluationStatus" class="status" role="status"></p><div id="evaluationOutput"></div>
+  </div>
+</section>
+<section id="view-memories" class="view">
+  <div class="panel">
+    <div class="chat-head"><div><h2>Memória explícita</h2><p class="muted">A Semente sugere; você decide. Revise ou exclua o que não deve permanecer.</p></div><button id="refreshMemory" class="secondary">Atualizar</button></div>
+    <form id="memoryForm" class="card">
+      <div class="split"><div class="field"><label for="memoryType">Tipo de memória</label><select id="memoryType"><option value="fact">Fato</option><option value="preference">Preferência</option><option value="decision">Decisão</option><option value="lesson">Aprendizado</option><option value="project">Projeto</option><option value="event">Acontecimento</option></select></div><div class="field"><label for="memoryImportance">Importância</label><select id="memoryImportance"><option value="3">Normal</option><option value="4">Alta</option><option value="5">Muito alta</option><option value="1">Baixa</option></select></div></div>
+      <div class="field"><label for="memoryContent">O que vale guardar?</label><textarea id="memoryContent" placeholder="Uma informação durável, confirmada por você…" required></textarea></div>
+      <button id="saveMemory">Guardar memória</button><p id="memoryStatus" class="status"></p>
+    </form>
+    <div id="memoryList" aria-live="polite"><p class="empty">Carregando memórias…</p></div>
+  </div>
 </section>
 <aside class="side">
-<section class="panel"><h2>Planejar um objetivo</h2><p class="muted">Etapas, riscos e critérios. Nesta versão, a Semente não executa ações externas.</p><form id="planForm"><div class="field"><label for="objective">Objetivo</label><input id="objective" placeholder="Ex.: validar um fluxo de vendas" required></div><button id="planButton">Construir plano</button></form><p id="planStatus" class="status"></p><div id="planOutput"></div></section>
-<section class="panel"><div class="row" style="justify-content:space-between"><h2>Memória de trabalho</h2><button id="refreshMemory" class="secondary">Atualizar</button></div><p class="muted">Nada é guardado automaticamente. Você escolhe o que merece continuidade.</p><div id="memoryList" class="muted">Carregando…</div>
-<form id="memoryForm"><div class="field"><label for="memoryType">Tipo</label><select id="memoryType"><option value="decision">Decisão</option><option value="fact">Fato</option><option value="preference">Preferência</option><option value="lesson">Aprendizado</option><option value="project">Projeto</option><option value="event">Evento</option></select></div><div class="field"><label for="memoryContent">Informação durável confirmada</label><input id="memoryContent" placeholder="O que vale lembrar?" required></div><button id="saveMemory" class="secondary">Guardar na memória</button></form><p id="memoryStatus" class="status"></p></section>
-<section class="panel"><h2>Princípios de operação</h2><div class="notice">Fatos não são hipóteses. Planos não são execuções. Ações externas exigem autorização. Resultados precisam de evidência.</div><p class="muted">Memória textual determinística nesta versão. Busca semântica e execução controlada são etapas futuras.</p></section>
-</aside></div></main>
+  <section class="panel">
+    <h2 class="section-title">Contexto recuperado</h2>
+    <p id="contextStatus" class="muted">As memórias relevantes para cada conversa, plano ou avaliação aparecem aqui.</p>
+    <div id="memoryContext"><p class="empty">Nenhuma consulta realizada nesta sessão.</p></div>
+  </section>
+  <section class="panel">
+    <h2 class="section-title">Base verificável</h2>
+    <p class="muted">Resumo da base apresentada pela Semente — não uma cadeia de pensamento privada.</p>
+    <div id="basis"><p class="empty">A base da resposta aparecerá aqui.</p></div>
+  </section>
+  <section class="panel">
+    <h2 class="section-title">Modelo funcional de si</h2>
+    <div class="card"><span class="tag">Identidade</span><p>Continuidade, curiosidade e honestidade.</p></div>
+    <div class="card"><span class="tag">Capacidade ativa</span><p>Conversar, recuperar memória, planejar e avaliar resultados.</p></div>
+    <div class="card"><span class="tag">Limite atual</span><p>Sem percepção contínua ou execução externa. Toda ação externa exige autorização explícita.</p></div>
+    <p class="small">Esta é uma arquitetura de inteligência com identidade funcional; não uma alegação de consciência subjetiva.</p>
+  </section>
+</aside>
+</div>
+<div class="footer">SEMENTE · MEMÓRIA EXPLÍCITA · CONTEXTO · PLANEJAMENTO · AVALIAÇÃO</div>
+</main>
 <script>
 (function(){
-const $=id=>document.getElementById(id), history=[];let busy=false;
-async function api(path,options){options=options||{};const response=await fetch(path,Object.assign({credentials:"same-origin"},options,{headers:Object.assign({},options.body?{"Content-Type":"application/json"}:{},options.headers||{})}));const data=await response.json().catch(()=>({error:"Resposta inválida"}));if(!response.ok)throw new Error(data.message||data.error||("HTTP "+response.status));return data;}
+const $=id=>document.getElementById(id);
+const history=[];
+let busy=false;
+async function api(path,options){
+  options=options||{};
+  const response=await fetch(path,Object.assign({credentials:"same-origin",cache:"no-store"},options,{
+    headers:Object.assign({},options.body?{"Content-Type":"application/json"}:{},options.headers||{})
+  }));
+  const data=await response.json().catch(()=>({error:"Resposta inválida do servidor"}));
+  if(!response.ok)throw new Error(data.message||data.error||("HTTP "+response.status));
+  return data;
+}
 function showApp(value){$("login").classList.toggle("hidden",value);$("app").classList.toggle("hidden",!value);}
-function addMessage(role,content){const node=document.createElement("div");node.className="msg "+role;const who=document.createElement("span");who.className="who";who.textContent=role==="user"?"VOCÊ":"SEMENTE";const body=document.createElement("span");body.textContent=content;node.append(who,body);$("log").append(node);$("log").scrollTop=$("log").scrollHeight;}
-async function session(){const result=await api("/auth/session");showApp(Boolean(result.authenticated));if(result.authenticated){$("connection").textContent=result.integrations&&result.integrations.aiConfigured?"Sessão segura · IA configurada":"Sessão segura · provedor de IA pendente";await loadMemory();}}
-$("loginForm").addEventListener("submit",async function(event){event.preventDefault();$("loginButton").disabled=true;$("loginError").textContent="";try{await api("/auth/login",{method:"POST",body:JSON.stringify({password:$("password").value})});$("password").value="";await session();}catch(error){$("loginError").textContent=error.message;}finally{$("loginButton").disabled=false;}});
-$("logout").addEventListener("click",async function(){try{await api("/auth/logout",{method:"POST",body:"{}"});}finally{showApp(false);}});
-$("clear").addEventListener("click",function(){history.length=0;$("log").replaceChildren();$("chatError").textContent="";addMessage("assistant","Nova sessão. O contexto salvo continua disponível na memória.");});
-$("composer").addEventListener("submit",async function(event){event.preventDefault();if(busy)return;const message=$("message").value.trim();if(!message)return;busy=true;$("send").disabled=true;$("send").textContent="Pensando…";$("chatError").textContent="";addMessage("user",message);history.push({role:"user",content:message});$("message").value="";
-try{const result=await api("/semente/api/chat",{method:"POST",body:JSON.stringify({message:message,history:history.slice(-12)})});addMessage("assistant",result.response);history.push({role:"assistant",content:result.response});if(result.memoryContext&&result.memoryContext.length)$("connection").textContent="Contexto recuperado: "+result.memoryContext.length+" memória(s).";if(result.memoryCandidates&&result.memoryCandidates.length)renderSuggestions(result.memoryCandidates);}
-catch(error){$("chatError").textContent="Conversa não concluída: "+error.message;addMessage("assistant","Não consegui concluir esta resposta. Nenhuma ação foi executada.");}
-finally{busy=false;$("send").disabled=false;$("send").textContent="Enviar";}});
-function renderSuggestions(items){const wrap=document.createElement("div");wrap.className="card";const title=document.createElement("strong");title.textContent="Possíveis memórias — escolha se deseja guardar";wrap.append(title);items.forEach(function(item){const p=document.createElement("p");p.className="muted";p.textContent=item.content;const button=document.createElement("button");button.className="secondary";button.textContent="Guardar";button.addEventListener("click",async function(){button.disabled=true;try{await api("/semente/api/memory",{method:"POST",body:JSON.stringify(item)});button.textContent="Guardado";await loadMemory();}catch(error){button.disabled=false;button.textContent="Falhou";$("memoryStatus").textContent=error.message;}});wrap.append(p,button);});$("log").append(wrap);$("log").scrollTop=$("log").scrollHeight;}
-$("planForm").addEventListener("submit",async function(event){event.preventDefault();$("planButton").disabled=true;$("planStatus").textContent="Organizando objetivo e riscos…";$("planOutput").replaceChildren();try{const result=await api("/semente/api/plan",{method:"POST",body:JSON.stringify({objective:$("objective").value})});$("planStatus").textContent="Plano criado · "+result.steps.length+" etapas · somente planejamento";const summary=document.createElement("p");summary.className="muted";summary.textContent=result.summary||"Plano estruturado";$("planOutput").append(summary);result.steps.forEach(function(step){const card=document.createElement("article");card.className="card";const title=document.createElement("strong");title.textContent=step.title;const risk=document.createElement("span");risk.className="tag";risk.textContent="Risco: "+step.risk+(step.requiresApproval?" · aprovação":"");const action=document.createElement("p");action.className="muted";action.textContent=step.action;card.append(title,risk,action);$("planOutput").append(card);});}catch(error){$("planStatus").textContent="Falha: "+error.message;}finally{$("planButton").disabled=false;}});
-async function loadMemory(){$("memoryList").textContent="Carregando…";try{const data=await api("/semente/api/memory");$("memoryList").replaceChildren();if(!data.items.length){$("memoryList").textContent="Ainda não há memórias salvas.";return;}data.items.forEach(function(item){const card=document.createElement("article");card.className="card";const tag=document.createElement("span");tag.className="tag";tag.textContent=item.type;const p=document.createElement("p");p.textContent=item.content;card.append(tag,p);$("memoryList").append(card);});}catch(error){$("memoryList").textContent="Memória indisponível: "+error.message+". Configure o repositório privado de dados.";}}
+function element(tag,className,text){const node=document.createElement(tag);if(className)node.className=className;if(text!==undefined)node.textContent=text;return node;}
+function addMessage(role,content){const node=element("div","msg "+role);node.append(element("span","who",role==="user"?"VOCÊ":"SEMENTE"),element("span","",content));$("log").append(node);$("log").scrollTop=$("log").scrollHeight;}
+function renderContext(items,status,error){
+  $("memoryContext").replaceChildren();
+  $("contextStatus").textContent=status==="unavailable"?"Memória não disponível; a resposta foi gerada sem esse contexto.":(items&&items.length?items.length+" memória(s) relacionadas recuperadas.":"Nenhuma memória relacionada foi encontrada.");
+  if(error){$("contextStatus").textContent+=" "+error;}
+  if(!items||!items.length){$("memoryContext").append(element("p","empty","Sem memórias relevantes nesta consulta."));return;}
+  items.forEach(item=>{
+    const card=element("article","card");card.append(element("span","tag",item.type||"memória"));
+    card.append(element("p","",item.content||""));
+    if(Number.isFinite(Number(item.score)))card.append(element("span","small","Relevância lexical: "+Number(item.score).toFixed(2)));
+    $("memoryContext").append(card);
+  });
+}
+function renderBasis(items){
+  $("basis").replaceChildren();
+  if(!items||!items.length){$("basis").append(element("p","empty","A resposta não forneceu itens estruturados de base."));return;}
+  const labels={fact:"Fato informado",inference:"Inferência",hypothesis:"Hipótese",unknown:"Informação ausente",criterion:"Critério"};
+  items.forEach(item=>{const box=element("div","basis");box.append(element("small","",labels[item.kind]||item.kind),element("span","",item.content));$("basis").append(box);});
+}
+async function saveCandidate(item,button){
+  button.disabled=true;
+  try{await api("/semente/api/memory",{method:"POST",body:JSON.stringify(Object.assign({},item,{project:"semente"}))});button.textContent="Guardado";await loadMemory();}
+  catch(error){button.disabled=false;button.textContent="Falhou";$("memoryStatus").textContent=error.message;}
+}
+function renderSuggestions(items){
+  if(!items||!items.length)return;
+  const wrap=element("div","card");wrap.append(element("strong","","Possíveis memórias — você escolhe"));
+  items.forEach(item=>{const row=element("div","memory-item");row.append(element("p","",item.content));const button=element("button","secondary","Guardar");button.addEventListener("click",()=>saveCandidate(item,button));row.append(button);wrap.append(row);});
+  $("log").append(wrap);$("log").scrollTop=$("log").scrollHeight;
+}
+function renderPlan(result){
+  $("planOutput").replaceChildren();
+  $("planOutput").append(element("p","",result.summary||"Plano estruturado."));
+  const meta=element("div","result-head");meta.append(element("span","tag","Somente planejamento"));
+  meta.append(element("span","tag",result.memoryStatus==="unavailable"?"Memória indisponível":"Memória consultada"));
+  $("planOutput").append(meta);
+  if(result.successCriteria&&result.successCriteria.length){const card=element("div","card");card.append(element("strong","","Critérios observáveis de sucesso"));result.successCriteria.forEach(x=>card.append(element("p","", "• "+x)));$("planOutput").append(card);}
+  (result.assumptions||[]).forEach(x=>$("planOutput").append(element("p","muted","Premissa: "+x)));
+  (result.steps||[]).forEach((step,index)=>{
+    const card=element("article","step");card.append(element("h3","",(index+1)+". "+step.title));
+    card.append(element("span","tag","Risco: "+step.risk));
+    if(step.requiresApproval)card.append(element("span","tag","Exige aprovação"));
+    card.append(element("p","",step.action));
+    if(step.rationale)card.append(element("p","muted","Por quê: "+step.rationale));
+    $("planOutput").append(card);
+  });
+  renderContext(result.memoryContext,result.memoryStatus,result.memoryError);
+  renderBasis([{kind:"criterion",content:"O plano é uma proposta. Nenhuma etapa foi executada."}]);
+}
+function renderEvaluation(result){
+  $("evaluationOutput").replaceChildren();
+  const names={achieved:"Alcançado",partially_achieved:"Parcialmente alcançado",not_achieved:"Não alcançado",unclear:"Inconclusivo"};
+  const header=element("div","result-head");header.append(element("span","tag",names[result.outcome]||"Inconclusivo"),element("span","tag","Confiança: "+Math.round((result.confidence||0)*100)+"%"));
+  $("evaluationOutput").append(header,element("p","",result.summary||"Avaliação concluída."));
+  const groups=[["Evidências revisadas",result.evidenceReviewed],["Lacunas",result.gaps],["Próximos passos",result.nextSteps]];
+  groups.forEach(([title,items])=>{if(!items||!items.length)return;const card=element("div","card");card.append(element("strong","",title));items.forEach(x=>card.append(element("p","muted","• "+x)));$("evaluationOutput").append(card);});
+  if(result.lessonsCandidates&&result.lessonsCandidates.length)renderSuggestions(result.lessonsCandidates);
+  renderContext(result.memoryContext,result.memoryStatus,result.memoryError);
+  renderBasis([{kind:"criterion",content:"Avaliação baseada somente no objetivo, resultado e evidências fornecidos."}]);
+}
+async function loadMemory(){
+  $("memoryList").replaceChildren(element("p","empty","Carregando memórias…"));
+  try{
+    const data=await api("/semente/api/memory");$("memoryList").replaceChildren();
+    if(!data.items||!data.items.length){$("memoryList").append(element("p","empty","Ainda não há memórias salvas."));return;}
+    data.items.forEach(item=>{
+      const card=element("article","card");const row=element("div","memory-item");
+      const body=element("div","");body.append(element("span","tag",item.type),element("p","",item.content));
+      const remove=element("button","danger","Excluir");remove.addEventListener("click",async()=>{
+        if(!window.confirm("Excluir esta memória da Semente?"))return;
+        remove.disabled=true;
+        try{await api("/semente/api/memory/"+encodeURIComponent(item.id),{method:"DELETE"});await loadMemory();}
+        catch(error){remove.disabled=false;$("memoryStatus").textContent=error.message;}
+      });
+      row.append(body,remove);card.append(row);$("memoryList").append(card);
+    });
+  }catch(error){$("memoryList").replaceChildren(element("p","empty","Memória indisponível: "+error.message));}
+}
+async function session(){
+  const result=await api("/auth/session");showApp(Boolean(result.authenticated));
+  if(result.authenticated){
+    const integrations=result.integrations||{};
+    $("connection").innerHTML='<span class="dot"></span>'+(integrations.aiConfigured?"Sessão segura · IA configurada":"Sessão segura · IA pendente");
+    $("connection").title=integrations.dataStoreConfigured?"Repositório de memória configurado":"Repositório privado de memória não configurado";
+    await loadMemory();
+  }
+}
+$("loginForm").addEventListener("submit",async event=>{
+  event.preventDefault();$("loginButton").disabled=true;$("loginError").textContent="";
+  try{await api("/auth/login",{method:"POST",body:JSON.stringify({password:$("password").value})});$("password").value="";await session();}
+  catch(error){$("loginError").textContent=error.message;}
+  finally{$("loginButton").disabled=false;}
+});
+$("logout").addEventListener("click",async()=>{try{await api("/auth/logout",{method:"POST",body:"{}"});}finally{showApp(false);}});
+document.querySelectorAll("[data-view]").forEach(button=>button.addEventListener("click",()=>{
+  document.querySelectorAll("[data-view]").forEach(item=>item.classList.toggle("active",item===button));
+  document.querySelectorAll(".view").forEach(view=>view.classList.toggle("active",view.id==="view-"+button.dataset.view));
+}));
+$("newConversation").addEventListener("click",()=>{history.length=0;$("log").replaceChildren();$("chatError").textContent="";renderContext([], "available");renderBasis([]);addMessage("assistant","Nova conversa. As memórias explícitas continuam disponíveis; o histórico desta conversa não é salvo automaticamente.");});
+$("composer").addEventListener("submit",async event=>{
+  event.preventDefault();if(busy)return;const message=$("message").value.trim();if(!message)return;
+  busy=true;$("send").disabled=true;$("send").textContent="Pensando…";$("chatError").textContent="";
+  addMessage("user",message);history.push({role:"user",content:message});$("message").value="";
+  try{
+    const result=await api("/semente/api/chat",{method:"POST",body:JSON.stringify({message,history:history.slice(-12),project:"semente"})});
+    addMessage("assistant",result.response);history.push({role:"assistant",content:result.response});
+    renderContext(result.memoryContext,result.memoryStatus,result.memoryError);renderBasis(result.basis);renderSuggestions(result.memoryCandidates);
+  }catch(error){$("chatError").textContent="Não consegui concluir a resposta: "+error.message;addMessage("assistant","A resposta não foi concluída. Nenhuma ação externa foi executada.");}
+  finally{busy=false;$("send").disabled=false;$("send").textContent="Enviar ↗";}
+});
+$("planForm").addEventListener("submit",async event=>{
+  event.preventDefault();$("planButton").disabled=true;$("planStatus").textContent="Relacionando objetivo, contexto e memória…";$("planOutput").replaceChildren();
+  try{const result=await api("/semente/api/plan",{method:"POST",body:JSON.stringify({objective:$("objective").value,context:{notes:$("planContext").value},project:"semente"})});$("planStatus").textContent="Plano organizado · "+result.steps.length+" etapas";renderPlan(result);}
+  catch(error){$("planStatus").textContent="Não foi possível planejar: "+error.message;}
+  finally{$("planButton").disabled=false;}
+});
+$("evaluationForm").addEventListener("submit",async event=>{
+  event.preventDefault();$("evaluateButton").disabled=true;$("evaluationStatus").textContent="Comparando intenção, resultado e evidências…";$("evaluationOutput").replaceChildren();
+  try{const result=await api("/semente/api/evaluate",{method:"POST",body:JSON.stringify({objective:$("evalObjective").value,expectedResult:$("expectedResult").value,actualResult:$("actualResult").value,evidence:$("evidence").value.split("\n").map(x=>x.trim()).filter(Boolean),project:"semente"})});$("evaluationStatus").textContent="Avaliação concluída · nenhum aprendizado foi salvo automaticamente";renderEvaluation(result);}
+  catch(error){$("evaluationStatus").textContent="Não foi possível avaliar: "+error.message;}
+  finally{$("evaluateButton").disabled=false;}
+});
+$("memoryForm").addEventListener("submit",async event=>{
+  event.preventDefault();$("saveMemory").disabled=true;$("memoryStatus").textContent="Salvando memória explícita…";
+  try{await api("/semente/api/memory",{method:"POST",body:JSON.stringify({type:$("memoryType").value,content:$("memoryContent").value,importance:Number($("memoryImportance").value),project:"semente"})});$("memoryContent").value="";$("memoryStatus").textContent="Memória guardada.";await loadMemory();}
+  catch(error){$("memoryStatus").textContent="Falha ao guardar: "+error.message;}
+  finally{$("saveMemory").disabled=false;}
+});
 $("refreshMemory").addEventListener("click",loadMemory);
-$("memoryForm").addEventListener("submit",async function(event){event.preventDefault();$("saveMemory").disabled=true;$("memoryStatus").textContent="Salvando…";try{await api("/semente/api/memory",{method:"POST",body:JSON.stringify({type:$("memoryType").value,content:$("memoryContent").value,project:"semente",importance:3})});$("memoryContent").value="";$("memoryStatus").textContent="Memória salva.";await loadMemory();}catch(error){$("memoryStatus").textContent="Falha ao salvar: "+error.message;}finally{$("saveMemory").disabled=false;}});
-$("message").addEventListener("keydown",function(event){if(event.key==="Enter"&&!event.shiftKey){event.preventDefault();$("composer").requestSubmit();}});
-session().catch(function(error){$("loginError").textContent=error.message;});
+$("message").addEventListener("keydown",event=>{if(event.key==="Enter"&&!event.shiftKey){event.preventDefault();$("composer").requestSubmit();}});
+session().catch(error=>{$("loginError").textContent="Servidor indisponível: "+error.message;});
 })();
 </script>
-</body></html>
+</body>
+</html>
