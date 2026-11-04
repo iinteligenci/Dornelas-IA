@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#07120f">
+<title>Semente — acesso ao núcleo</title>
+<style>
+:root{color-scheme:dark;--bg:#07110d;--panel:#102017;--line:#2b4033;--text:#edf5ee;--muted:#9aafa0;--accent:#b9e2aa}
+*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;padding:20px;background:radial-gradient(ellipse at 50% 15%,#1d3828,transparent 55%),var(--bg);color:var(--text);font:15px/1.6 system-ui,sans-serif}.card{width:min(100%,620px);padding:28px;background:#102017ee;border:1px solid var(--line);border-radius:20px;box-shadow:0 20px 70px #0006}.mark{width:58px;height:58px;display:grid;place-items:center;border-radius:18px;background:radial-gradient(circle at 30% 25%,#e9ffdc,#9bcf91 50%,#4d855b);color:#102015;font-size:30px;font-weight:900}.eyebrow{color:var(--accent);font-size:10px;letter-spacing:.2em;font-weight:800;margin-top:18px}.status{display:flex;align-items:center;gap:9px;padding:12px;border:1px solid var(--line);border-radius:10px;background:#0b1710;color:var(--muted);font-size:12px}.dot{width:9px;height:9px;border-radius:50%;background:#d7ae62}.dot.ok{background:#7ecb91}.dot.bad{background:#db857e}a.button{display:inline-block;margin-top:18px;padding:12px 17px;background:var(--accent);color:#132018;border-radius:10px;text-decoration:none;font-weight:800}a.button[aria-disabled=true]{opacity:.55}small{color:var(--muted)}.note{margin-top:20px;padding:12px;border-left:3px solid #75b98a;background:#14261b;color:#b6c9ba;font-size:12px}
+</style>
+</head>
+<body>
+<main class="card">
+  <div class="mark">S</div>
+  <div class="eyebrow">INTELIGÊNCIA DE CONTINUIDADE</div>
+  <h1 style="font-size:34px;letter-spacing:.12em;margin:4px 0">SEMENTE</h1>
+  <p>O GitHub Pages entrega esta porta de entrada. O cérebro, a sessão privada e a memória são executados pelo backend Node.js — não pelo site estático.</p>
+  <div id="status" class="status"><span id="dot" class="dot"></span><span id="statusText">Verificando o backend…</span></div>
+  <a id="open" class="button" href="https://dornelas-ia.onrender.com/semente" rel="noopener">Abrir ambiente integrado ↗</a>
+  <p><small>O ambiente integrado abre no domínio do próprio backend para manter a sessão administrativa e as rotas autenticadas no mesmo domínio.</small></p>
+  <div class="note">Esta página não simula respostas nem guarda credenciais. Se o backend estiver indisponível, o código continua no GitHub, mas a conversa real depende de um serviço Node.js ativo e das variáveis já configuradas nele.</div>
+</main>
+<script>
+(async function(){
+ const base="https://dornelas-ia.onrender.com";
+ const status=document.getElementById("status"),dot=document.getElementById("dot"),text=document.getElementById("statusText"),open=document.getElementById("open");
+ try{
+   const controller=new AbortController();const timer=setTimeout(()=>controller.abort(),35000);
+   const response=await fetch(base+"/health",{cache:"no-store",signal:controller.signal});clearTimeout(timer);
+   if(!response.ok)throw new Error("HTTP "+response.status);
+   const data=await response.json();
+   if(!data.ok)throw new Error("Health check não confirmou o serviço");
+   dot.className="dot ok";text.textContent="Backend respondeu. A interface integrada pode ser aberta.";
+   status.style.color="#bde7c6";
+ }catch(error){
+   dot.className="dot bad";text.textContent="Backend ainda não confirmou disponibilidade ("+(error.name==="AbortError"?"tempo limite":error.message)+").";
+   status.style.color="#e3aaa4";
+ }
+})();
+</script>
+</body>
+</html>
