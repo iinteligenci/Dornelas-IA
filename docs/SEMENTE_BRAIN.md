@@ -22,7 +22,7 @@ The functional self-model is explicit in `server/brain/identity.js`: purpose, do
 - Login uses the existing admin password and signed HttpOnly session cookie.
 - The index provides free conversation, planning, outcome evaluation, relevant-memory inspection, verifiable response basis, explicit memory saving and memory deletion.
 - All data APIs live under authenticated `/semente/api/*` routes. No public API or client-side secret is introduced.
-- `preview/semente/index.html` is a GitHub Pages gateway only. It checks the backend health endpoint and opens `/semente` on the backend's own origin. It deliberately does not simulate chat or move the admin cookie across domains; same-origin session handling is more reliable and avoids exposing credentials.
+- `public/semente/index.html` is a GitHub Pages gateway only. Vite copies `public/` into `dist/`, so the page is actually included in the Pages artifact. It checks the backend health endpoint and opens `/semente` on the backend's own origin. It deliberately does not simulate chat or move the admin cookie across domains; same-origin session handling is more reliable and avoids exposing credentials.
 
 ## Persistence and provider compatibility
 
@@ -35,6 +35,7 @@ Memory uses the existing JSON store interface and writes to `generated/semente/m
 - Suggested memories and evaluation lessons require explicit human confirmation.
 - Planning and evaluation have no external side effects.
 - Publishing, messaging, purchases, payments, deletion of external resources and other actions remain unavailable without a separately approved tool and authorization.
+- The former `preview/semente/index.html` copy was removed after moving the gateway to `public/semente/index.html`; the old location was outside Vite's build output and would never be published. This is the only removed component, and it was a duplicate introduced for the preview.
 - No production deploy was performed.
 
 ## Known limitations / next phase
@@ -42,7 +43,7 @@ Memory uses the existing JSON store interface and writes to `generated/semente/m
 - Retrieval is lexical and transparent, not vector/embedding search.
 - The current conversation history is in-memory in the browser tab and is not persisted as a transcript.
 - There is no continuous sensor perception, autonomous task queue, tool registry or outcome-learning loop.
-- The GitHub Pages gateway is static; the Node.js backend must be deployed separately and configured with the existing `ADMIN_PASSWORD`, `ADMIN_SESSION_SECRET`, AI provider settings, and private data-store settings if persistent memory is required.
+- The GitHub Pages gateway at `/Dornelas-IA/semente/` is static; the Node.js backend must be deployed separately and configured with the existing `ADMIN_PASSWORD`, `ADMIN_SESSION_SECRET`, AI provider settings, and private data-store settings if persistent memory is required.
 - The Render URL referenced by the gateway must be verified in a real environment. This PR does not deploy or provision services.
 
 ## Verification
