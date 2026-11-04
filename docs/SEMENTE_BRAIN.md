@@ -1,49 +1,55 @@
-# Semente — Brain foundation and private test index
+# Semente — identity, continuity and controlled intelligence
 
-This change begins the Dornelas-IA to Semente transition without replacing the legacy product.
+This PR evolves Dornelas-IA toward Semente incrementally. The existing Dornelas product, routes, integrations and tests remain in place.
 
-## Product premise
+## Identity
 
-Semente is a continuity-first work intelligence system, not a generic chat persona. Its operating method is to understand goals, distinguish facts from assumptions, recover relevant context, plan verifiable work, require authorization for external actions, and learn only from confirmed outcomes.
+Semente is a general-purpose continuity intelligence, not a work-only assistant or a generic chatbot persona. Its context can include everyday life, relationships, learning, curiosity, creativity, decisions, leisure, projects and work. It must not force every conversation into a productivity task.
 
-## What is included
+The functional self-model is explicit in `server/brain/identity.js`: purpose, domains, principles, operating cycle and limits. This is an architectural identity, not a claim of human-like subjective consciousness, emotions or continuous perception.
 
-- Typed, bounded memory for explicit facts, preferences, decisions, lessons, projects and events.
-- Deterministic lexical retrieval ranked by overlap and importance. This is a transparent baseline, not vector search.
-- A planner that turns an objective, context and retrieved memories into a validated plan of up to eight steps.
-- A conversation service that recovers relevant memory, uses bounded conversation history, and proposes optional memory candidates without saving them automatically.
-- A private test index at `/semente`, with login, conversation, objective planning, memory inspection and explicit memory saving.
-- Authenticated APIs under `/semente/api/*` using the existing admin session.
-- Unit and API tests for the new behavior and authentication boundary.
+## Brain capabilities
 
-## Persistence
+- **Explicit memory:** typed facts, preferences, decisions, lessons, projects and events; bounded retention; lexical retrieval; duplicate-content protection; user-controlled deletion.
+- **Conversation:** retrieves relevant memories, accepts bounded recent history, returns a natural response, an auditable basis (facts, inferences, hypotheses, unknowns and criteria), and optional memory candidates. No chat transcript is silently persisted.
+- **Planning:** creates a bounded plan with observable success criteria, assumptions, risk classification and explicit approval flags. Plans are `plan_only`; no step is executed.
+- **Outcome evaluation:** compares objective, expected result, actual result and user-supplied evidence; returns outcome, gaps, confidence, next steps and optional lesson candidates. It never stores lessons automatically.
+- **Graceful degradation:** conversation, planning and evaluation can proceed without the optional memory store. The response reports that memory context was unavailable; memory read/write operations themselves fail closed.
 
-The memory service uses the existing JSON store interface (getJson / putJson). Its default path is `generated/semente/memory.json` in the configured private data repository. It does not write to the public application repository or store credentials.
+## Test interface
 
-If the private data repository is not configured, the memory panel reports that limitation. Conversation can still be used when an AI provider is configured; memory retrieval is best-effort for chat, while memory writes fail closed.
+- The integrated test index is served by the backend at `/semente`.
+- Login uses the existing admin password and signed HttpOnly session cookie.
+- The index provides free conversation, planning, outcome evaluation, relevant-memory inspection, verifiable response basis, explicit memory saving and memory deletion.
+- All data APIs live under authenticated `/semente/api/*` routes. No public API or client-side secret is introduced.
+- `preview/semente/index.html` is a GitHub Pages gateway only. It checks the backend health endpoint and opens `/semente` on the backend's own origin. It deliberately does not simulate chat or move the admin cookie across domains; same-origin session handling is more reliable and avoids exposing credentials.
+
+## Persistence and provider compatibility
+
+Memory uses the existing JSON store interface and writes to `generated/semente/memory.json` in the configured private data repository. It does not write to the public application repository. The existing `runAI` provider adapter is reused, including current Gemini / compatible-provider configuration. No new credential, OpenAI key, or client-side API key is introduced.
 
 ## Safety boundaries
 
-- Memory is explicit: callers decide what is worth remembering. Chat transcripts are not silently persisted.
-- The planner only proposes. Its output is marked `plan_only`.
-- Unknown risk is normalized to medium. Medium/high-risk and detected external actions require approval.
-- No tool execution, publishing, messaging, OAuth access, purchases or external side effects are added.
-- The test index is protected by the existing admin login. Its static HTML may load without a session, but all data APIs require a valid session.
-- Existing Dornelas routes, integrations, admin UI and tests are retained.
+- No legacy component or existing test was removed.
+- No conversation is automatically saved.
+- Suggested memories and evaluation lessons require explicit human confirmation.
+- Planning and evaluation have no external side effects.
+- Publishing, messaging, purchases, payments, deletion of external resources and other actions remain unavailable without a separately approved tool and authorization.
+- No production deploy was performed.
 
-## Current limits
+## Known limitations / next phase
 
-- Memory retrieval is lexical and deterministic; semantic/vector retrieval is not implemented.
-- The conversation model is stateless between requests except for bounded history supplied by the UI and explicit persistent memories.
-- There is no autonomous task runner, tool registry, task queue or outcome-learning loop yet.
-- The existing AI provider configuration is reused; no new credentials are required by this code.
-- No production deploy is performed by this PR.
+- Retrieval is lexical and transparent, not vector/embedding search.
+- The current conversation history is in-memory in the browser tab and is not persisted as a transcript.
+- There is no continuous sensor perception, autonomous task queue, tool registry or outcome-learning loop.
+- The GitHub Pages gateway is static; the Node.js backend must be deployed separately and configured with the existing `ADMIN_PASSWORD`, `ADMIN_SESSION_SECRET`, AI provider settings, and private data-store settings if persistent memory is required.
+- The Render URL referenced by the gateway must be verified in a real environment. This PR does not deploy or provision services.
 
 ## Verification
 
-Run from the repository root:
+From the repository root:
 
     npm run test:server
     npm run build
 
-GitHub Actions checks are the authoritative CI result for this branch. The test index is available from the server at `/semente` after this branch is deployed to a test environment with the existing admin credentials and AI provider configured.
+The PR's GitHub Actions checks are used to confirm these commands on the branch. The integrated index is usable after the branch is deployed to a test backend with admin authentication and an AI provider configured; persistent memory additionally requires the existing private data-store configuration.
