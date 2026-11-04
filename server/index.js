@@ -468,6 +468,13 @@ const server = await import("node:http").then(({ createServer }) =>
           res.end(JSON.stringify({ ok: true, items }));
           return;
         }
+        const memoryDeleteMatch = requestUrl.pathname.match(/^\\/semente\\/api\\/memory\\/([^/]+)$/);
+        if (req.method === "DELETE" && memoryDeleteMatch) {
+          const result = await sementeBrain.memory.forget(decodeURIComponent(memoryDeleteMatch[1]), { project: "semente" });
+          res.setHeader("Cache-Control", "no-store");
+          res.end(JSON.stringify({ ok: true, ...result }));
+          return;
+        }
         if (req.method === "POST" && requestUrl.pathname === "/semente/api/memory") {
           const input = JSON.parse(await readBody(req) || "{}");
           if (JSON.stringify(input).length > 5000) throw new Error("MEMORY_INPUT_TOO_LARGE");
@@ -508,11 +515,26 @@ const server = await import("node:http").then(({ createServer }) =>
           res.end(JSON.stringify({ ok: true, ...result }));
           return;
         }
+        if (req.method === "POST" && requestUrl.pathname === "/semente/api/evaluate") {
+          const input = JSON.parse(await readBody(req) || "{}");
+          if (JSON.stringify(input).length > 20000) throw new Error("SEMENTE_INPUT_TOO_LARGE");
+          const result = await sementeBrain.evaluate({
+            objective: input.objective,
+            expectedResult: input.expectedResult,
+            actualResult: input.actualResult,
+            evidence: input.evidence,
+            context: input.context || {},
+            project: input.project || "semente"
+          });
+          res.setHeader("Cache-Control", "no-store");
+          res.end(JSON.stringify({ ok: true, ...result }));
+          return;
+        }
         res.statusCode = 404;
         res.end(JSON.stringify({ error: "semente_endpoint_not_found" }));
         return;
       } catch (error) {
-        const status = ["SEMENTE_MESSAGE_REQUIRED","SEMENTE_OBJECTIVE_REQUIRED","MEMORY_INVALID_ENTRY","MEMORY_INVALID_TYPE","MEMORY_EMPTY_CONTENT","BRAIN_OBJECTIVE_REQUIRED"].includes(error.message) ? 400 : 502;
+        const status = ["SEMENTE_MESSAGE_REQUIRED","SEMENTE_OBJECTIVE_REQUIRED","MEMORY_INVALID_ENTRY","MEMORY_INVALID_TYPE","MEMORY_EMPTY_CONTENT","BRAIN_OBJECTIVE_REQUIRED","BRAIN_EVALUATION_INPUT_REQUIRED"].includes(error.message) ? 400 : 502;
         res.statusCode = status;
         res.end(JSON.stringify({ error: "semente_request_failed", message: error.message }));
         return;
