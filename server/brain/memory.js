@@ -26,11 +26,26 @@ export function createMemoryService({ store, path = "generated/semente/memory.js
     async remember(input) {
       const entry = normalizeEntry(input, now);
       const current = await read();
-      if (entry.id && current.entries.some(item => item.id === entry.id)) return { saved: false, duplicate: true, entry: current.entries.find(item => item.id === entry.id) };
+      const existing = current.entries.find(item =>
+        (entry.id && item.id === entry.id) ||
+        (item.type === entry.type && item.project === entry.project &&
+          String(item.content || "").normalize("NFC").toLocaleLowerCase("pt-BR") === entry.content.normalize("NFC").toLocaleLowerCase("pt-BR"))
+      );
+      if (existing) return { saved: false, duplicate: true, entry: existing };
       entry.id ||= "mem_" + now().getTime().toString(36) + "_" + Math.random().toString(36).slice(2, 9);
       const entries = [...current.entries, entry].slice(-Math.max(1, maxEntries));
       await store.putJson(path, { version: MEMORY_VERSION, updatedAt: now().toISOString(), entries }, current.sha);
       return { saved: true, duplicate: false, entry };
+    },
+    async forget(id, { project } = {}) {
+      const targetId = cleanText(id, 100);
+      if (!targetId) return { deleted: false };
+      const current = await read();
+      const existing = current.entries.find(item => item.id === targetId && (!project || item.project === project));
+      if (!existing) return { deleted: false };
+      const entries = current.entries.filter(item => item.id !== targetId);
+      await store.putJson(path, { version: MEMORY_VERSION, updatedAt: now().toISOString(), entries }, current.sha);
+      return { deleted: true, id: targetId };
     },
     async list({ project, type, limit = 100 } = {}) {
       const { entries } = await read();
