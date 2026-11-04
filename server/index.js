@@ -468,7 +468,7 @@ const server = await import("node:http").then(({ createServer }) =>
           res.end(JSON.stringify({ ok: true, items }));
           return;
         }
-        const memoryDeleteMatch = requestUrl.pathname.match(/^\\/semente\\/api\\/memory\\/([^/]+)$/);
+        const memoryDeleteMatch = requestUrl.pathname.match(/^\/semente\/api\/memory\/([^/]+)$/);
         if (req.method === "DELETE" && memoryDeleteMatch) {
           const result = await sementeBrain.memory.forget(decodeURIComponent(memoryDeleteMatch[1]), { project: "semente" });
           res.setHeader("Cache-Control", "no-store");
