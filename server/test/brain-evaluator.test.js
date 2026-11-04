@@ -9,7 +9,7 @@ test("evaluator compares intended and actual outcomes without saving lessons", a
     return { text: JSON.stringify({
       outcome: "partially_achieved",
       summary: "O resultado avançou, mas não atingiu todo o critério.",
-      evidenceReviewed: ["O teste foi executado em ambiente local."],
+      interpretations: ["O teste local indica avanço, mas não prova uso real."],
       gaps: ["Ainda falta validação com usuários."],
       lessonsCandidates: [{ content: "Validar com usuários antes de ampliar.", tags: ["validacao"], importance: 4 }],
       nextSteps: ["Executar teste com três usuários."],
@@ -25,6 +25,8 @@ test("evaluator compares intended and actual outcomes without saving lessons", a
   assert.match(payload.instructions, /avaliador de resultados/);
   assert.equal(result.outcome, "partially_achieved");
   assert.equal(result.evaluationMode, "evidence_review_only");
+  assert.deepEqual(result.evidenceProvided, ["Teste automatizado passou"]);
+  assert.equal(result.interpretations[0], "O teste local indica avanço, mas não prova uso real.");
   assert.equal(result.lessonsCandidates.length, 1);
   assert.equal(result.lessonsCandidates[0].type, "lesson");
   assert.equal(result.nextSteps[0], "Executar teste com três usuários.");
@@ -40,11 +42,12 @@ test("evaluator downgrades unknown model outcomes to unclear and bounds output",
   const evaluator = createEvaluator({ generate: async () => ({ text: JSON.stringify({
     outcome: "success",
     summary: "Sem evidência suficiente",
-    evidenceReviewed: ["x".repeat(900)],
+    interpretations: ["x".repeat(900)],
     lessonsCandidates: Array.from({ length: 8 }, (_, i) => ({ content: "Lição " + i }))
   }) }) });
   const result = await evaluator.evaluate({ objective: "Objetivo", actualResult: "Resultado" });
   assert.equal(result.outcome, "unclear");
-  assert.equal(result.evidenceReviewed[0].length, 500);
+  assert.equal(result.evidenceProvided.length, 0);
+  assert.equal(result.interpretations[0].length, 500);
   assert.equal(result.lessonsCandidates.length, 4);
 });
